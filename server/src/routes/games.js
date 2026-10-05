@@ -25,8 +25,9 @@ router.get('/leagues/:leagueId/games', async (req, res) => {
   if (team_id) { where.push('(g.home_team_id = :team OR g.away_team_id = :team)'); params.team = team_id; }
 
   const [rows] = await pool.query(
-    `SELECT g.*, h.name AS home_name, h.color AS home_color,
-            a.name AS away_name, a.color AS away_color, gr.name AS group_name
+    `SELECT g.*, h.name AS home_name, h.color AS home_color, h.logo_url AS home_logo,
+            a.name AS away_name, a.color AS away_color, a.logo_url AS away_logo,
+            gr.name AS group_name
        FROM games g
        JOIN teams h ON h.id = g.home_team_id
        JOIN teams a ON a.id = g.away_team_id
@@ -78,6 +79,38 @@ router.post('/leagues/:leagueId/games', requireAdmin, async (req, res) => {
   );
   const [[game]] = await pool.query('SELECT * FROM games WHERE id = :id', { id: r.insertId });
   res.status(201).json(game);
+});
+
+// Resultado rápido (admin): registra el marcador final de un juego ya jugado
+// sin capturar el boxscore completo. Útil para cargar jornadas anteriores.
+// Si ambos marcadores vienen vacíos/null, el juego vuelve a "programado".
+router.put('/games/:id/result', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { home_score, away_score } = req.body || {};
+  const [[game]] = await pool.query('SELECT * FROM games WHERE id = :id', { id });
+  if (!game) return res.status(404).json({ error: 'Juego no encontrado' });
+
+  const clear = home_score == null && away_score == null;
+  if (clear) {
+    await pool.query(
+      "UPDATE games SET home_score = NULL, away_score = NULL, status = 'scheduled' WHERE id = :id",
+      { id }
+    );
+  } else {
+    const h = Math.max(0, Number(home_score) || 0);
+    const a = Math.max(0, Number(away_score) || 0);
+    await pool.query(
+      "UPDATE games SET home_score = :h, away_score = :a, status = 'final' WHERE id = :id",
+      { id, h, a }
+    );
+    await pool.query(
+      "UPDATE leagues SET status = 'in_progress' WHERE id = :lid AND status != 'finished'",
+      { lid: game.league_id }
+    );
+  }
+  if (game.series_id) await recomputeSeries(game.series_id);
+  const [[updated]] = await pool.query('SELECT * FROM games WHERE id = :id', { id });
+  res.json({ ok: true, game: updated });
 });
 
 // Actualizar datos del juego (fecha, etc.) (admin).

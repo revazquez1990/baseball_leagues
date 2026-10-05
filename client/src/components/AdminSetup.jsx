@@ -10,6 +10,7 @@ export default function AdminSetup({ league, groups, teams, onChange }) {
   const [teamName, setTeamName] = useState('');
   const [bulkCount, setBulkCount] = useState(8);
   const [startDate, setStartDate] = useState('');
+  const [weekendOnly, setWeekendOnly] = useState(true);
 
   async function run(fn, okMsg) {
     setBusy(true); setMsg(null);
@@ -50,7 +51,9 @@ export default function AdminSetup({ league, groups, teams, onChange }) {
     run(() => api.put(`/teams/${teamId}/group`, { group_id: groupId || null }));
 
   const generar = () => run(
-    () => api.post(`/leagues/${league.id}/schedule`, { startDate: startDate || null }),
+    () => api.post(`/leagues/${league.id}/schedule`, {
+      startDate: startDate || null, weekendOnly,
+    }),
     'Calendario generado'
   );
 
@@ -170,11 +173,19 @@ export default function AdminSetup({ league, groups, teams, onChange }) {
           <p className="muted" style={{ marginTop: 0 }}>
             Round-robin justo: todos juegan la misma cantidad ({league.rounds} vuelta/s).
             Vuelve a generarlo y se reemplaza (los boxscores de temporada regular se borran).
+            Luego puedes ajustar fechas y jornadas a mano en la pestaña Calendario.
           </p>
           <div className="form-row">
-            <div>
+            <div style={{ maxWidth: 200 }}>
               <label>Fecha de inicio (opcional)</label>
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+            </div>
+            <div style={{ alignSelf: 'flex-end', paddingBottom: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0, cursor: 'pointer' }}>
+                <input type="checkbox" checked={weekendOnly}
+                       onChange={(e) => setWeekendOnly(e.target.checked)} style={{ width: 'auto' }} />
+                Jugar solo Vie / Sáb / Dom
+              </label>
             </div>
           </div>
           <button className="btn" onClick={generar} disabled={busy || teams.length < 2}>

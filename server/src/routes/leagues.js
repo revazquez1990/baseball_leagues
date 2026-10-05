@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { pool, withTransaction } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { distributeIntoGroups } from '../utils/random.js';
-import { generateRoundRobin } from '../utils/schedule.js';
+import { generateRoundRobin, weekendDates, spacedDates } from '../utils/schedule.js';
 import { computeStandings } from '../utils/standings.js';
 import { leagueLeaders } from '../utils/stats.js';
 
@@ -156,7 +156,7 @@ router.post('/:id/assign-groups', requireAdmin, async (req, res) => {
 // previos y crea los nuevos por grupo.
 router.post('/:id/schedule', requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { startDate = null, daysBetweenRounds = 7 } = req.body || {};
+  const { startDate = null, daysBetweenRounds = 7, weekendOnly = true } = req.body || {};
   const [[league]] = await pool.query('SELECT * FROM leagues WHERE id = :id', { id });
   if (!league) return res.status(404).json({ error: 'Liga no encontrada' });
 
@@ -175,6 +175,24 @@ router.post('/:id/schedule', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Hay equipos sin grupo asignado. Sortea los grupos primero.' });
   }
 
+  // Genera los partidos por grupo y calcula cuántas jornadas hay en total.
+  const perBucket = [];
+  let maxRound = 0;
+  for (const [groupId, teamIds] of buckets.entries()) {
+    const games = generateRoundRobin(teamIds, league.rounds);
+    perBucket.push({ groupId, games });
+    for (const g of games) if (g.round > maxRound) maxRound = g.round;
+  }
+
+  // Precalcula una fecha por jornada: fines de semana (Vie/Sáb/Dom) o
+  // separadas por días. Sin startDate, las fechas quedan sin asignar.
+  let roundDates = [];
+  if (startDate) {
+    roundDates = weekendOnly
+      ? weekendDates(startDate, maxRound)
+      : spacedDates(startDate, maxRound, Number(daysBetweenRounds || 7));
+  }
+
   const created = await withTransaction(async (conn) => {
     await conn.query(
       "DELETE FROM games WHERE league_id = :id AND stage = 'regular'",
@@ -182,15 +200,9 @@ router.post('/:id/schedule', requireAdmin, async (req, res) => {
     );
 
     let total = 0;
-    for (const [groupId, teamIds] of buckets.entries()) {
-      const games = generateRoundRobin(teamIds, league.rounds);
+    for (const { groupId, games } of perBucket) {
       for (const g of games) {
-        let date = null;
-        if (startDate) {
-          const d = new Date(startDate);
-          d.setDate(d.getDate() + (g.round - 1) * Number(daysBetweenRounds || 7));
-          date = d.toISOString().slice(0, 10);
-        }
+        const date = roundDates[g.round - 1] || null;
         await conn.query(
           `INSERT INTO games (league_id, group_id, round, game_date, home_team_id, away_team_id, stage)
            VALUES (:league, :group, :round, :date, :home, :away, 'regular')`,

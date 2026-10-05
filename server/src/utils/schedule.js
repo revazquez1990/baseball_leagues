@@ -48,6 +48,48 @@ function singleRoundRobin(teamIds) {
   return schedule;
 }
 
+function toISO(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Devuelve `count` fechas (yyyy-mm-dd) que caen únicamente en viernes, sábado
+ * o domingo, empezando en o después de `startDate`. Se usa para repartir las
+ * jornadas en fines de semana (3 jornadas por fin de semana: Vie, Sáb, Dom).
+ *
+ * @param {string} startDate  fecha ISO 'yyyy-mm-dd'
+ * @param {number} count
+ */
+export function weekendDates(startDate, count) {
+  const dates = [];
+  const d = new Date(`${startDate}T00:00:00`);
+  let guard = 0;
+  while (dates.length < count && guard < 4000) {
+    const day = d.getDay(); // 0=Dom, 5=Vie, 6=Sáb
+    if (day === 5 || day === 6 || day === 0) dates.push(toISO(d));
+    d.setDate(d.getDate() + 1);
+    guard++;
+  }
+  return dates;
+}
+
+/**
+ * Fechas separadas por un número fijo de días (una por jornada).
+ */
+export function spacedDates(startDate, count, daysBetween = 7) {
+  const dates = [];
+  const base = new Date(`${startDate}T00:00:00`);
+  for (let i = 0; i < count; i++) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + i * daysBetween);
+    dates.push(toISO(d));
+  }
+  return dates;
+}
+
 /**
  * Genera el calendario completo para un conjunto de equipos (de un grupo
  * o de toda la liga), con la cantidad de vueltas indicada.
