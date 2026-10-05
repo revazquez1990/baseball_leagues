@@ -31,6 +31,22 @@ async function main() {
   await root.query(schema);
   console.log('Esquema aplicado.');
 
+  // Migración idempotente: si la tabla games ya existía sin series_id
+  // (versión anterior), añade la columna y su clave foránea.
+  const [cols] = await root.query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = 'games' AND column_name = 'series_id'`,
+    [config.db.database]
+  );
+  if (cols[0].n === 0) {
+    await root.query('ALTER TABLE games ADD COLUMN series_id INT NULL AFTER group_id');
+    await root.query(
+      `ALTER TABLE games ADD CONSTRAINT fk_games_series
+         FOREIGN KEY (series_id) REFERENCES playoff_series(id) ON DELETE CASCADE`
+    );
+    console.log('Migración: columna games.series_id añadida.');
+  }
+
   // 3. Crea el usuario admin si no existe.
   const hash = await bcrypt.hash(config.admin.password, 10);
   await root.query(

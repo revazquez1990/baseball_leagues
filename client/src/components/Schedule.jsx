@@ -16,7 +16,10 @@ export default function Schedule({ leagueId, isAdmin }) {
   if (loading) return <div className="empty">Cargando…</div>;
   if (games.length === 0) return <div className="empty">Aún no hay calendario. {isAdmin && 'Genéralo desde el panel de administración.'}</div>;
 
-  const shown = games.filter((g) =>
+  // El calendario muestra solo la temporada regular; los playoffs tienen su
+  // propia pestaña.
+  const regular = games.filter((g) => g.stage !== 'playoff');
+  const shown = regular.filter((g) =>
     filter === 'all' ? true : filter === 'final' ? g.status === 'final' : g.status === 'scheduled'
   );
 

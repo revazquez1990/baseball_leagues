@@ -8,6 +8,7 @@ import leagueRoutes from './routes/leagues.js';
 import teamRoutes from './routes/teams.js';
 import playerRoutes from './routes/players.js';
 import gameRoutes from './routes/games.js';
+import playoffRoutes from './routes/playoffs.js';
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use('/api/leagues', leagueRoutes);
 app.use('/api', teamRoutes);
 app.use('/api', playerRoutes);
 app.use('/api', gameRoutes);
+app.use('/api', playoffRoutes);
 
 // Manejo centralizado de errores.
 app.use((err, _req, res, _next) => {

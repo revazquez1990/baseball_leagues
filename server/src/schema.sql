@@ -53,10 +53,33 @@ CREATE TABLE IF NOT EXISTS players (
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Series de playoffs (bracket de eliminación simple).
+CREATE TABLE IF NOT EXISTS playoff_series (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  league_id         INT NOT NULL,
+  round             INT NOT NULL,            -- 1 = primera ronda de playoffs
+  position          INT NOT NULL,            -- posición dentro de la ronda (0-based)
+  name              VARCHAR(80),
+  best_of           INT NOT NULL DEFAULT 5,
+  high_seed_team_id INT NULL,
+  low_seed_team_id  INT NULL,
+  high_seed_label   VARCHAR(40),             -- p.ej. "#1" o "Ganador S1"
+  low_seed_label    VARCHAR(40),
+  winner_team_id    INT NULL,
+  next_series_id    INT NULL,                -- serie a la que avanza el ganador
+  next_slot         ENUM('high','low') NULL, -- en qué lado del siguiente cruce
+  FOREIGN KEY (league_id) REFERENCES leagues(id) ON DELETE CASCADE,
+  FOREIGN KEY (high_seed_team_id) REFERENCES teams(id) ON DELETE SET NULL,
+  FOREIGN KEY (low_seed_team_id) REFERENCES teams(id) ON DELETE SET NULL,
+  FOREIGN KEY (winner_team_id) REFERENCES teams(id) ON DELETE SET NULL,
+  FOREIGN KEY (next_series_id) REFERENCES playoff_series(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS games (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   league_id    INT NOT NULL,
   group_id     INT NULL,
+  series_id    INT NULL,                     -- distinto de NULL si es de playoffs
   round        INT NOT NULL DEFAULT 1,
   game_date    DATE NULL,
   home_team_id INT NOT NULL,
@@ -68,6 +91,7 @@ CREATE TABLE IF NOT EXISTS games (
   created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (league_id) REFERENCES leagues(id) ON DELETE CASCADE,
   FOREIGN KEY (group_id) REFERENCES league_groups(id) ON DELETE SET NULL,
+  FOREIGN KEY (series_id) REFERENCES playoff_series(id) ON DELETE CASCADE,
   FOREIGN KEY (home_team_id) REFERENCES teams(id) ON DELETE CASCADE,
   FOREIGN KEY (away_team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { pool, withTransaction } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
+import { recomputeSeries } from '../utils/playoffs.js';
 
 const router = Router();
 
@@ -158,13 +159,21 @@ router.post('/games/:id/boxscore', requireAdmin, async (req, res) => {
     );
   });
 
+  // Si el juego pertenece a una serie de playoffs, recalcula la serie
+  // (victorias, ganador y avance al siguiente cruce).
+  if (game.series_id) {
+    await recomputeSeries(game.series_id);
+  }
+
   const [[updated]] = await pool.query('SELECT * FROM games WHERE id = :id', { id });
   res.json({ ok: true, game: updated });
 });
 
 // Eliminar juego (admin).
 router.delete('/games/:id', requireAdmin, async (req, res) => {
+  const [[game]] = await pool.query('SELECT series_id FROM games WHERE id = :id', { id: req.params.id });
   await pool.query('DELETE FROM games WHERE id = :id', { id: req.params.id });
+  if (game?.series_id) await recomputeSeries(game.series_id);
   res.status(204).end();
 });
 

@@ -5,11 +5,13 @@ import { useAuth } from '../auth.jsx';
 import Standings from '../components/Standings.jsx';
 import Leaders from '../components/Leaders.jsx';
 import Schedule from '../components/Schedule.jsx';
+import Playoffs from '../components/Playoffs.jsx';
 import AdminSetup from '../components/AdminSetup.jsx';
 
 const TABS = [
   { key: 'standings', label: 'Posiciones' },
   { key: 'schedule', label: 'Calendario' },
+  { key: 'playoffs', label: 'Playoffs' },
   { key: 'teams', label: 'Equipos' },
   { key: 'leaders', label: 'Líderes' },
 ];
@@ -65,6 +67,7 @@ export default function LeagueDetail() {
 
       {tab === 'standings' && <Standings leagueId={id} />}
       {tab === 'schedule' && <Schedule leagueId={id} teams={teams} isAdmin={isAdmin} onChange={load} />}
+      {tab === 'playoffs' && <Playoffs league={league} isAdmin={isAdmin} />}
       {tab === 'teams' && <TeamsTab teams={teams} />}
       {tab === 'leaders' && <Leaders leagueId={id} />}
     </div>
