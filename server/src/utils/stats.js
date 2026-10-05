@@ -56,10 +56,16 @@ const PIT_SUM = `
   SUM(pl.win) w, SUM(pl.loss) l, SUM(pl.save) sv,
   COUNT(DISTINCT pl.game_id) gp`;
 
-// Normaliza NULLs de los SUM() a 0.
+// Normaliza los agregados numéricos: NULL -> 0, strings numéricos -> número.
+// Los campos de texto (nombre, equipo, posición) se dejan intactos.
 function z(row) {
   const out = {};
-  for (const k of Object.keys(row)) out[k] = row[k] == null ? 0 : Number(row[k]);
+  for (const k of Object.keys(row)) {
+    const v = row[k];
+    if (v == null) { out[k] = 0; continue; }
+    const n = Number(v);
+    out[k] = Number.isNaN(n) ? v : n;
+  }
   return out;
 }
 
@@ -100,8 +106,8 @@ export async function teamBatting(teamId) {
   return rows.map((row) => {
     const t = z(row);
     return {
-      id: row.id, name: row.name, number: row.number, position: row.position,
       ...t, ...battingRates(t),
+      id: row.id, name: row.name, number: row.number, position: row.position,
     };
   });
 }
@@ -121,7 +127,7 @@ export async function teamPitching(teamId) {
   );
   return rows.map((row) => {
     const t = z(row);
-    return { id: row.id, name: row.name, number: row.number, ...t, ...pitchingRates(t) };
+    return { ...t, ...pitchingRates(t), id: row.id, name: row.name, number: row.number };
   });
 }
 
@@ -153,13 +159,13 @@ export async function leagueLeaders(leagueId, { minPA = null, minIP = null } = {
 
   const batters = batRows.map((row) => {
     const t = z(row);
-    return { id: row.id, name: row.name, teamId: row.teamId, teamName: row.teamName,
-      color: row.color, ...t, ...battingRates(t) };
+    return { ...t, ...battingRates(t),
+      id: row.id, name: row.name, teamId: row.teamId, teamName: row.teamName, color: row.color };
   });
   const pitchers = pitRows.map((row) => {
     const t = z(row);
-    return { id: row.id, name: row.name, teamId: row.teamId, teamName: row.teamName,
-      color: row.color, ...t, ...pitchingRates(t) };
+    return { ...t, ...pitchingRates(t),
+      id: row.id, name: row.name, teamId: row.teamId, teamName: row.teamName, color: row.color };
   });
 
   // Umbral automático para tasas si no se especifica: ~2.0 PA por juego de
