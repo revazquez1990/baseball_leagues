@@ -47,6 +47,17 @@ async function main() {
     console.log('Migración: columna games.series_id añadida.');
   }
 
+  // Migración idempotente: columna teams.logo_url (logos de equipos).
+  const [logoCols] = await root.query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = 'teams' AND column_name = 'logo_url'`,
+    [config.db.database]
+  );
+  if (logoCols[0].n === 0) {
+    await root.query('ALTER TABLE teams ADD COLUMN logo_url VARCHAR(500) NULL AFTER color');
+    console.log('Migración: columna teams.logo_url añadida.');
+  }
+
   // 3. Crea el usuario admin si no existe.
   const hash = await bcrypt.hash(config.admin.password, 10);
   await root.query(

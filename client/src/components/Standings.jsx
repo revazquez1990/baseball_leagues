@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import TeamLogo from './TeamLogo.jsx';
 
 export default function Standings({ leagueId }) {
   const [data, setData] = useState(null);
@@ -31,7 +32,7 @@ export default function Standings({ leagueId }) {
                     <td>{r.rank}</td>
                     <td>
                       <Link to={`/teams/${r.teamId}`}>
-                        <span className="tag" style={{ background: r.color }} />{r.name}
+                        <TeamLogo logoUrl={r.logoUrl} color={r.color} name={r.name} size={20} />{r.name}
                       </Link>
                     </td>
                     <td>{r.g}</td>

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS teams (
   name       VARCHAR(120) NOT NULL,
   city       VARCHAR(120),
   color      VARCHAR(20) DEFAULT '#1e5aa8',
+  logo_url   VARCHAR(500),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (league_id) REFERENCES leagues(id) ON DELETE CASCADE,
   FOREIGN KEY (group_id) REFERENCES league_groups(id) ON DELETE SET NULL

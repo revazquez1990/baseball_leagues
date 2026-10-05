@@ -20,11 +20,11 @@ router.get('/leagues/:leagueId/teams', async (req, res) => {
 
 // Crear equipo (admin).
 router.post('/leagues/:leagueId/teams', requireAdmin, async (req, res) => {
-  const { name, city = null, color = '#1e5aa8' } = req.body || {};
+  const { name, city = null, color = '#1e5aa8', logo_url = null } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Nombre requerido' });
   const [r] = await pool.query(
-    'INSERT INTO teams (league_id, name, city, color) VALUES (:l, :n, :c, :col)',
-    { l: req.params.leagueId, n: name, c: city, col: color }
+    'INSERT INTO teams (league_id, name, city, color, logo_url) VALUES (:l, :n, :c, :col, :logo)',
+    { l: req.params.leagueId, n: name, c: city, col: color, logo: logo_url }
   );
   const [[team]] = await pool.query('SELECT * FROM teams WHERE id = :id', { id: r.insertId });
   res.status(201).json(team);
@@ -89,16 +89,28 @@ router.get('/teams/:id', async (req, res) => {
 
 // Actualizar equipo (admin).
 router.put('/teams/:id', requireAdmin, async (req, res) => {
-  const { name, city, color, group_id } = req.body || {};
+  const { name, city, color, logo_url } = req.body || {};
   await pool.query(
     `UPDATE teams SET
         name = COALESCE(:name, name),
         city = COALESCE(:city, city),
         color = COALESCE(:color, color),
-        group_id = COALESCE(:group_id, group_id)
+        logo_url = COALESCE(:logo, logo_url)
       WHERE id = :id`,
-    { id: req.params.id, name: name ?? null, city: city ?? null, color: color ?? null, group_id: group_id ?? null }
+    { id: req.params.id, name: name ?? null, city: city ?? null,
+      color: color ?? null, logo: logo_url ?? null }
   );
+  const [[team]] = await pool.query('SELECT * FROM teams WHERE id = :id', { id: req.params.id });
+  res.json(team);
+});
+
+// Asignar (o quitar) el grupo de un equipo — asignación manual (admin).
+// group_id = null quita el equipo de su grupo.
+router.put('/teams/:id/group', requireAdmin, async (req, res) => {
+  const { group_id = null } = req.body || {};
+  await pool.query('UPDATE teams SET group_id = :g WHERE id = :id', {
+    g: group_id === '' ? null : group_id, id: req.params.id,
+  });
   const [[team]] = await pool.query('SELECT * FROM teams WHERE id = :id', { id: req.params.id });
   res.json(team);
 });

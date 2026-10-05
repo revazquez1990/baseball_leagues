@@ -8,6 +8,25 @@ import { leagueLeaders } from '../utils/stats.js';
 
 const router = Router();
 
+// Asegura que la liga tenga `numGroups` grupos, creando los que falten sin
+// borrar los existentes (para que el sorteo y la asignación manual compartan
+// los mismos grupos con id estable). Devuelve los grupos.
+async function ensureGroups(conn, leagueId, numGroups) {
+  const [existing] = await conn.query(
+    'SELECT * FROM league_groups WHERE league_id = :id ORDER BY id', { id: leagueId }
+  );
+  const groups = [...existing];
+  for (let i = existing.length; i < numGroups; i++) {
+    const name = numGroups === 1 ? 'General' : `Grupo ${String.fromCharCode(65 + i)}`;
+    const [r] = await conn.query(
+      'INSERT INTO league_groups (league_id, name) VALUES (:id, :name)',
+      { id: leagueId, name }
+    );
+    groups.push({ id: r.insertId, league_id: leagueId, name });
+  }
+  return groups;
+}
+
 // Lista de ligas (pública).
 router.get('/', async (_req, res) => {
   const [rows] = await pool.query(
@@ -31,8 +50,11 @@ router.get('/:id', async (req, res) => {
     { id }
   );
   const [teams] = await pool.query(
-    `SELECT t.*, (SELECT COUNT(*) FROM players p WHERE p.team_id = t.id) AS player_count
-       FROM teams t WHERE t.league_id = :id ORDER BY t.name`,
+    `SELECT t.*, g.name AS group_name,
+            (SELECT COUNT(*) FROM players p WHERE p.team_id = t.id) AS player_count
+       FROM teams t
+       LEFT JOIN league_groups g ON g.id = t.group_id
+      WHERE t.league_id = :id ORDER BY t.name`,
     { id }
   );
   res.json({ league, groups, teams });
@@ -81,7 +103,24 @@ router.delete('/:id', requireAdmin, async (req, res) => {
   res.status(204).end();
 });
 
-// Sorteo aleatorio de equipos en grupos (admin).
+// Crear/asegurar los grupos de la liga sin asignar equipos (admin).
+// Útil para después asignar manualmente cada equipo a un grupo.
+router.post('/:id/groups', requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const [[league]] = await pool.query('SELECT * FROM leagues WHERE id = :id', { id });
+  if (!league) return res.status(404).json({ error: 'Liga no encontrada' });
+  const numGroups = league.format === 'groups' ? Math.max(1, league.num_groups) : 1;
+  await withTransaction((conn) => ensureGroups(conn, id, numGroups));
+  const [groups] = await pool.query(
+    `SELECT g.*, (SELECT COUNT(*) FROM teams t WHERE t.group_id = g.id) AS team_count
+       FROM league_groups g WHERE g.league_id = :id ORDER BY g.id`,
+    { id }
+  );
+  res.json({ ok: true, groups });
+});
+
+// Sorteo aleatorio de equipos en grupos (admin). Reutiliza los grupos
+// existentes (id estable) para convivir con la asignación manual.
 router.post('/:id/assign-groups', requireAdmin, async (req, res) => {
   const { id } = req.params;
   const [[league]] = await pool.query('SELECT * FROM leagues WHERE id = :id', { id });
@@ -93,19 +132,8 @@ router.post('/:id/assign-groups', requireAdmin, async (req, res) => {
   const numGroups = league.format === 'groups' ? Math.max(1, league.num_groups) : 1;
 
   await withTransaction(async (conn) => {
-    // Borra grupos previos (los equipos quedan con group_id NULL por el FK).
-    await conn.query('DELETE FROM league_groups WHERE league_id = :id', { id });
-
-    const groupIds = [];
-    for (let i = 0; i < numGroups; i++) {
-      const gname = numGroups === 1 ? 'General' : `Grupo ${String.fromCharCode(65 + i)}`;
-      const [r] = await conn.query(
-        'INSERT INTO league_groups (league_id, name) VALUES (:id, :name)',
-        { id, name: gname }
-      );
-      groupIds.push(r.insertId);
-    }
-
+    const groups = await ensureGroups(conn, id, numGroups);
+    const groupIds = groups.slice(0, numGroups).map((g) => g.id);
     const distribution = distributeIntoGroups(teams.map((t) => t.id), numGroups);
     for (let gi = 0; gi < distribution.length; gi++) {
       for (const teamId of distribution[gi]) {
@@ -118,7 +146,7 @@ router.post('/:id/assign-groups', requireAdmin, async (req, res) => {
 
   const [groups] = await pool.query(
     `SELECT g.*, (SELECT COUNT(*) FROM teams t WHERE t.group_id = g.id) AS team_count
-       FROM league_groups g WHERE g.league_id = :id ORDER BY g.name`,
+       FROM league_groups g WHERE g.league_id = :id ORDER BY g.id`,
     { id }
   );
   res.json({ ok: true, groups });

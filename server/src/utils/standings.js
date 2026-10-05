@@ -22,7 +22,7 @@ export async function computeStandings(leagueId) {
   if (!league) return { league: null, groups: [] };
 
   const [teams] = await pool.query(
-    `SELECT t.id, t.name, t.color, t.group_id, g.name AS group_name
+    `SELECT t.id, t.name, t.color, t.logo_url, t.group_id, g.name AS group_name
        FROM teams t
        LEFT JOIN league_groups g ON g.id = t.group_id
       WHERE t.league_id = :id
@@ -44,6 +44,7 @@ export async function computeStandings(leagueId) {
       teamId: t.id,
       name: t.name,
       color: t.color,
+      logoUrl: t.logo_url,
       groupId: t.group_id,
       groupName: t.group_name,
       g: 0, w: 0, l: 0, rs: 0, ra: 0,
@@ -154,6 +155,7 @@ export async function computeStandings(leagueId) {
       teamId: r.teamId,
       name: r.name,
       color: r.color,
+      logoUrl: r.logoUrl,
       g: r.g, w: r.w, l: r.l,
       pct: Number(r.pct.toFixed(3)),
       gb: r.gb === 0 ? '-' : r.gb.toFixed(1),

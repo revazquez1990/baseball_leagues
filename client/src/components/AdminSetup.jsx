@@ -40,6 +40,15 @@ export default function AdminSetup({ league, groups, teams, onChange }) {
     'Equipos repartidos en grupos aleatoriamente'
   );
 
+  const crearGrupos = () => run(
+    () => api.post(`/leagues/${league.id}/groups`),
+    'Grupos creados. Asigna cada equipo abajo.'
+  );
+
+  // Asignación manual: sin mensaje para que sea fluido al cambiar el select.
+  const asignarGrupo = (teamId, groupId) =>
+    run(() => api.put(`/teams/${teamId}/group`, { group_id: groupId || null }));
+
   const generar = () => run(
     () => api.post(`/leagues/${league.id}/schedule`, { startDate: startDate || null }),
     'Calendario generado'
@@ -96,21 +105,59 @@ export default function AdminSetup({ league, groups, teams, onChange }) {
             </div>
           )}
 
-          {/* Paso 2: sorteo */}
+          {/* Paso 2: grupos (sorteo aleatorio o asignación manual) */}
           {league.format === 'groups' && (
             <>
-              <h4 style={{ marginTop: 20 }}>2. Sortear grupos ({league.num_groups})</h4>
+              <h4 style={{ marginTop: 20 }}>2. Grupos ({league.num_groups})</h4>
               <p className="muted" style={{ marginTop: 0 }}>
-                Reparte los {teams.length} equipos al azar en {league.num_groups} grupos.
+                Sortea los {teams.length} equipos al azar, o asígnalos tú mismo.
+                Puedes combinar: sortear y luego ajustar manualmente.
               </p>
-              <button className="btn" onClick={sortear} disabled={busy || teams.length < 2}>
-                🎲 Sortear grupos
-              </button>
+              <div className="row">
+                <button className="btn" onClick={sortear} disabled={busy || teams.length < 2}>
+                  🎲 Sortear grupos
+                </button>
+                <button className="btn secondary" onClick={crearGrupos}
+                        disabled={busy || groups.length >= league.num_groups}>
+                  ✎ Crear grupos para asignar manual
+                </button>
+              </div>
+
               {groups.length > 0 && (
-                <div className="row" style={{ marginTop: 10 }}>
-                  {groups.map((g) => (
-                    <span key={g.id} className="pill">{g.name}</span>
-                  ))}
+                <div className="table-wrap" style={{ marginTop: 14 }}>
+                  <table>
+                    <thead>
+                      <tr><th>Equipo</th><th style={{ textAlign: 'left' }}>Grupo</th></tr>
+                    </thead>
+                    <tbody>
+                      {teams.map((t) => (
+                        <tr key={t.id}>
+                          <td>
+                            <span className="tag" style={{ background: t.color }} />{t.name}
+                          </td>
+                          <td style={{ textAlign: 'left' }}>
+                            <select
+                              value={t.group_id ?? ''}
+                              onChange={(e) => asignarGrupo(t.id, e.target.value)}
+                              disabled={busy}
+                              style={{ maxWidth: 200 }}
+                            >
+                              <option value="">— Sin grupo —</option>
+                              {groups.map((g) => (
+                                <option key={g.id} value={g.id}>{g.name}</option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="row" style={{ marginTop: 10 }}>
+                    {groups.map((g) => {
+                      const n = teams.filter((t) => t.group_id === g.id).length;
+                      return <span key={g.id} className="pill">{g.name}: {n}</span>;
+                    })}
+                  </div>
                 </div>
               )}
             </>

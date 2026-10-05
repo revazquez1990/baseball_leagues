@@ -6,9 +6,12 @@ import Standings from '../components/Standings.jsx';
 import Leaders from '../components/Leaders.jsx';
 import Schedule from '../components/Schedule.jsx';
 import Playoffs from '../components/Playoffs.jsx';
+import Summary from '../components/Summary.jsx';
 import AdminSetup from '../components/AdminSetup.jsx';
+import TeamLogo from '../components/TeamLogo.jsx';
 
 const TABS = [
+  { key: 'summary', label: 'Resumen' },
   { key: 'standings', label: 'Posiciones' },
   { key: 'schedule', label: 'Calendario' },
   { key: 'playoffs', label: 'Playoffs' },
@@ -20,7 +23,7 @@ export default function LeagueDetail() {
   const { id } = useParams();
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
-  const [tab, setTab] = useState('standings');
+  const [tab, setTab] = useState('summary');
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(() => {
@@ -65,6 +68,7 @@ export default function LeagueDetail() {
         ))}
       </div>
 
+      {tab === 'summary' && <Summary league={league} teams={teams} onGoTab={setTab} />}
       {tab === 'standings' && <Standings leagueId={id} />}
       {tab === 'schedule' && <Schedule leagueId={id} teams={teams} isAdmin={isAdmin} onChange={load} />}
       {tab === 'playoffs' && <Playoffs league={league} isAdmin={isAdmin} />}
@@ -81,7 +85,7 @@ function TeamsTab({ teams }) {
       {teams.map((t) => (
         <Link to={`/teams/${t.id}`} key={t.id} className="card">
           <div className="row">
-            <span className="tag" style={{ background: t.color }} />
+            <TeamLogo logoUrl={t.logo_url} color={t.color} name={t.name} size={28} />
             <strong style={{ fontSize: 16 }}>{t.name}</strong>
           </div>
           <div className="muted" style={{ marginTop: 8 }}>

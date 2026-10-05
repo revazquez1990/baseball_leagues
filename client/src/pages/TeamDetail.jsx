@@ -2,12 +2,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
+import TeamLogo from '../components/TeamLogo.jsx';
 
 export default function TeamDetail() {
   const { id } = useParams();
   const { isAdmin } = useAuth();
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('batting');
+  const [editingPlayer, setEditingPlayer] = useState(null); // objeto jugador o null
+  const [showTeamEdit, setShowTeamEdit] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/teams/${id}`).then(setData);
@@ -23,18 +26,35 @@ export default function TeamDetail() {
         <Link to={`/leagues/${team.league_id}`} className="muted">← {team.league_name}</Link>
       </div>
       <div className="spread">
-        <div>
-          <h1 className="title" style={{ margin: '8px 0 0' }}>
-            <span className="tag" style={{ background: team.color, width: 16, height: 16 }} />
-            {team.name}
-          </h1>
-          <p className="subtitle" style={{ margin: 0 }}>
-            {team.group_name || 'Sin grupo'} · Récord {record.w}-{record.l}
-          </p>
+        <div className="row">
+          <TeamLogo logoUrl={team.logo_url} color={team.color} name={team.name} size={44} />
+          <div>
+            <h1 className="title" style={{ margin: 0 }}>{team.name}</h1>
+            <p className="subtitle" style={{ margin: 0 }}>
+              {team.group_name || 'Sin grupo'}{team.city ? ` · ${team.city}` : ''} · Récord {record.w}-{record.l}
+            </p>
+          </div>
         </div>
+        {isAdmin && (
+          <button className="btn secondary small" onClick={() => setShowTeamEdit((s) => !s)}>
+            {showTeamEdit ? 'Cerrar' : 'Editar equipo'}
+          </button>
+        )}
       </div>
 
-      {isAdmin && <AddPlayer teamId={id} onChange={load} />}
+      {isAdmin && showTeamEdit && (
+        <TeamEditor team={team} onSaved={() => { setShowTeamEdit(false); load(); }} />
+      )}
+
+      {isAdmin && (
+        <PlayerForm
+          key={editingPlayer?.id || 'new'}
+          teamId={id}
+          player={editingPlayer}
+          onSaved={() => { setEditingPlayer(null); load(); }}
+          onCancel={() => setEditingPlayer(null)}
+        />
+      )}
 
       <div className="tabs">
         <div className={`tab ${tab === 'batting' ? 'active' : ''}`} onClick={() => setTab('batting')}>Bateo</div>
@@ -42,7 +62,7 @@ export default function TeamDetail() {
       </div>
 
       {tab === 'batting' ? (
-        <BattingTable rows={roster} isAdmin={isAdmin} onChange={load} />
+        <BattingTable rows={roster} isAdmin={isAdmin} onEdit={setEditingPlayer} onChange={load} />
       ) : (
         <PitchingTable rows={pitching} />
       )}
@@ -50,7 +70,48 @@ export default function TeamDetail() {
   );
 }
 
-function BattingTable({ rows, isAdmin, onChange }) {
+function TeamEditor({ team, onSaved }) {
+  const [form, setForm] = useState({
+    name: team.name, city: team.city || '', color: team.color || '#1e5aa8',
+    logo_url: team.logo_url || '',
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
+
+  async function save() {
+    setBusy(true);
+    try { await api.put(`/teams/${team.id}`, form); onSaved(); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
+      <h4 style={{ marginTop: 0 }}>Editar equipo</h4>
+      <div className="form-row">
+        <div style={{ flex: 2 }}><label>Nombre</label>
+          <input value={form.name} onChange={set('name')} /></div>
+        <div><label>Ciudad / barrio</label>
+          <input value={form.city} onChange={set('city')} /></div>
+        <div style={{ maxWidth: 120 }}><label>Color</label>
+          <input type="color" value={form.color} onChange={set('color')} style={{ height: 38, padding: 2 }} /></div>
+      </div>
+      <div className="form-row">
+        <div style={{ flex: 3 }}>
+          <label>URL del logo (opcional)</label>
+          <input value={form.logo_url} onChange={set('logo_url')}
+                 placeholder="https://…/logo.png" />
+        </div>
+        <div className="row" style={{ alignItems: 'flex-end' }}>
+          <TeamLogo logoUrl={form.logo_url} color={form.color} name={form.name} size={40} />
+          <span className="muted" style={{ fontSize: 12 }}>Vista previa</span>
+        </div>
+      </div>
+      <button className="btn" onClick={save} disabled={busy}>Guardar</button>
+    </div>
+  );
+}
+
+function BattingTable({ rows, isAdmin, onEdit, onChange }) {
   async function delPlayer(p) {
     if (!confirm(`¿Eliminar a ${p.name}?`)) return;
     await api.del(`/players/${p.id}`);
@@ -78,7 +139,12 @@ function BattingTable({ rows, isAdmin, onChange }) {
               <td>{p.bb}</td><td>{p.so}</td><td>{p.sb}</td>
               <td>{p.avg.toFixed(3)}</td><td>{p.obp.toFixed(3)}</td>
               <td>{p.slg.toFixed(3)}</td><td style={{ fontWeight: 700 }}>{p.ops.toFixed(3)}</td>
-              {isAdmin && <td><button className="btn danger small" onClick={() => delPlayer(p)}>×</button></td>}
+              {isAdmin && (
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <button className="btn secondary small" onClick={() => onEdit(p)}>✎</button>{' '}
+                  <button className="btn danger small" onClick={() => delPlayer(p)}>×</button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -113,30 +179,40 @@ function PitchingTable({ rows }) {
   );
 }
 
-function AddPlayer({ teamId, onChange }) {
-  const [form, setForm] = useState({ name: '', number: '', position: '', bats: 'R', throws: 'R' });
+// Formulario que sirve tanto para agregar como para editar un jugador.
+function PlayerForm({ teamId, player, onSaved, onCancel }) {
+  const editing = !!player;
+  const [form, setForm] = useState({
+    name: player?.name || '',
+    number: player?.number ?? '',
+    position: player?.position || '',
+    bats: player?.bats || 'R',
+    throws: player?.throws || 'R',
+  });
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  async function add() {
+  async function submit() {
     if (!form.name.trim()) return;
     setBusy(true);
+    const payload = { ...form, number: form.number === '' ? null : Number(form.number) };
     try {
-      await api.post(`/teams/${teamId}/players`, {
-        ...form,
-        number: form.number ? Number(form.number) : null,
-      });
-      setForm({ name: '', number: '', position: '', bats: 'R', throws: 'R' });
-      onChange();
+      if (editing) await api.put(`/players/${player.id}`, payload);
+      else await api.post(`/teams/${teamId}/players`, payload);
+      if (!editing) setForm({ name: '', number: '', position: '', bats: 'R', throws: 'R' });
+      onSaved();
     } finally { setBusy(false); }
   }
 
   return (
-    <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
-      <h4 style={{ marginTop: 0 }}>Agregar jugador a la nómina</h4>
+    <div className="panel" style={{ borderColor: editing ? 'var(--accent)' : 'var(--accent-2)' }}>
+      <h4 style={{ marginTop: 0 }}>
+        {editing ? `Editar jugador: ${player.name}` : 'Agregar jugador a la nómina'}
+      </h4>
       <div className="form-row">
         <div style={{ flex: 2 }}><label>Nombre</label>
-          <input value={form.name} onChange={set('name')} onKeyDown={(e) => e.key === 'Enter' && add()} /></div>
+          <input value={form.name} onChange={set('name')}
+                 onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
         <div style={{ maxWidth: 90 }}><label>Número</label>
           <input type="number" value={form.number} onChange={set('number')} /></div>
         <div style={{ maxWidth: 110 }}><label>Posición</label>
@@ -146,7 +222,12 @@ function AddPlayer({ teamId, onChange }) {
         <div style={{ maxWidth: 100 }}><label>Lanza</label>
           <select value={form.throws} onChange={set('throws')}><option>R</option><option>L</option></select></div>
       </div>
-      <button className="btn" onClick={add} disabled={busy}>Agregar</button>
+      <div className="row">
+        <button className="btn" onClick={submit} disabled={busy}>
+          {editing ? 'Guardar cambios' : 'Agregar'}
+        </button>
+        {editing && <button className="btn secondary" onClick={onCancel}>Cancelar</button>}
+      </div>
     </div>
   );
 }

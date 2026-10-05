@@ -106,6 +106,12 @@ input[type=number] { text-align: right; }
 .score { font-weight: 800; font-size: 18px; }
 .win { color: var(--green); font-weight: 700; }
 
+/* Tiles de resumen */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 8px; }
+.tile { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; text-align: center; }
+.tile-value { font-size: 28px; font-weight: 800; }
+.tile-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+
 /* Bracket de playoffs */
 .bracket { display: flex; gap: 20px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
 .bracket-round { min-width: 240px; display: flex; flex-direction: column; gap: 16px; }
