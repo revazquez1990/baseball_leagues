@@ -215,7 +215,11 @@ function parseRoster(text) {
     const num = rest.match(/^\s*(\d{1,3})\s*[-.)]\s*/);
     if (num) { number = num[1]; rest = rest.slice(num[0].length); }
 
-    const name = rest.replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+    let name = rest.replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+    // Quita un número suelto al inicio (índice de fila de una hoja de cálculo).
+    name = name.replace(/^\d{1,3}\s+/, '').trim();
+    // Quita símbolos iniciales que deja el OCR (comillas, puntos, etc.).
+    name = name.replace(/^[^\p{L}]+/u, '').trim();
     rows.push({ number, name, carnet, position });
   }
   return rows;
@@ -225,6 +229,29 @@ function ImportPlayers({ teamId, onDone }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrError, setOcrError] = useState('');
+
+  async function onImage(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite volver a elegir la misma imagen
+    if (!file) return;
+    setOcrBusy(true); setOcrProgress(0); setOcrError('');
+    try {
+      const Tesseract = await import('tesseract.js');
+      const { data } = await Tesseract.recognize(file, 'spa', {
+        logger: (m) => {
+          if (m.status === 'recognizing text') setOcrProgress(Math.round(m.progress * 100));
+        },
+      });
+      setText((prev) => (prev.trim() ? `${prev}\n${data.text}` : data.text));
+    } catch (err) {
+      setOcrError(`No se pudo leer la imagen: ${err.message}`);
+    } finally {
+      setOcrBusy(false);
+    }
+  }
 
   const rows = parseRoster(text);
   const checked = rows.map((r) => ({ ...r, check: validateCarnet(r.carnet), noName: !r.name }));
@@ -250,10 +277,21 @@ function ImportPlayers({ teamId, onDone }) {
     <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
       <h4 style={{ marginTop: 0 }}>Importar jugadores (pegar lista)</h4>
       <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-        Pega una línea por jugador. Se detecta el CI (11 dígitos); el número
-        inicial y lo que esté entre paréntesis (p. ej. DT, Cap) son opcionales.
-        Las líneas sin CI (como el nombre del equipo) se ignoran.
+        Pega una línea por jugador, o sube una <strong>imagen</strong> (foto o
+        captura) y el texto se extraerá aquí para que lo revises. Se detecta el
+        CI (11 dígitos); el número inicial y lo que esté entre paréntesis
+        (p. ej. DT, Cap) son opcionales. Las líneas sin CI se ignoran.
       </p>
+
+      <div className="row" style={{ marginBottom: 10 }}>
+        <label className="btn secondary small" style={{ cursor: 'pointer', margin: 0 }}>
+          🖼️ Subir imagen (OCR)
+          <input type="file" accept="image/*" onChange={onImage} style={{ display: 'none' }} disabled={ocrBusy} />
+        </label>
+        {ocrBusy && <span className="muted" style={{ fontSize: 13 }}>Leyendo imagen… {ocrProgress}%</span>}
+      </div>
+      {ocrError && <div className="error">{ocrError}</div>}
+
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}

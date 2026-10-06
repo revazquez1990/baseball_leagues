@@ -13,6 +13,10 @@ build/
 *.log
 npm-debug.log*
 
+# Datos de OCR (tesseract.js) descargados en tiempo de ejecución
+*.traineddata
+*.traineddata.gz
+
 # Editor / SO
 .DS_Store
 Thumbs.db
