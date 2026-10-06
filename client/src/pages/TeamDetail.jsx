@@ -229,6 +229,66 @@ function parseRoster(text) {
   return rows;
 }
 
+// Lee un archivo Excel (.xlsx/.xls) o CSV y extrae { name, carnet } por fila.
+// Detecta automáticamente la columna de CI (la que más celdas de 8-11 dígitos
+// tiene) y arma el nombre con las demás columnas de texto (une Nombre + 1er y
+// 2do apellido si vienen separados). Recupera ceros a la izquierda del CI que
+// Excel pudo perder al guardarlo como número.
+async function parseSpreadsheet(file) {
+  const XLSX = await import('xlsx');
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '' });
+  const grid = aoa.map((r) => (Array.isArray(r) ? r.map((c) => (c == null ? '' : String(c).trim())) : []));
+  const ncols = grid.reduce((m, r) => Math.max(m, r.length), 0);
+  if (ncols === 0) return [];
+
+  const digitsOf = (s) => String(s).replace(/\D/g, '');
+  const looksCI = (s) => {
+    const d = digitsOf(s);
+    const compact = String(s).replace(/\s/g, '');
+    return d.length >= 8 && d.length <= 11 && d.length >= compact.length - 2;
+  };
+
+  // Columna de CI: la que más celdas tipo CI contiene.
+  let ciCol = -1, best = 0;
+  for (let c = 0; c < ncols; c++) {
+    let count = 0;
+    for (const row of grid) if (looksCI(row[c] || '')) count++;
+    if (count > best) { best = count; ciCol = c; }
+  }
+  if (ciCol === -1) return [];
+
+  const dataRows = grid.filter((row) => looksCI(row[ciCol] || ''));
+
+  // Columnas de nombre: las demás con letras en las filas de datos (excluye
+  // columnas de índice numérico).
+  const hasLetter = (s) => /\p{L}/u.test(String(s));
+  const nameCols = [];
+  for (let c = 0; c < ncols; c++) {
+    if (c === ciCol) continue;
+    let letters = 0;
+    for (const row of dataRows) if (hasLetter(row[c] || '')) letters++;
+    if (letters >= Math.max(1, dataRows.length * 0.5)) nameCols.push(c);
+  }
+
+  const normCI = (s) => {
+    let d = digitsOf(s);
+    if (d.length >= 8 && d.length < 11) d = d.padStart(11, '0'); // recupera ceros a la izquierda
+    return d.slice(0, 11);
+  };
+
+  const rows = [];
+  for (const row of dataRows) {
+    const name = nameCols.map((c) => row[c] || '').filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const carnet = normCI(row[ciCol] || '');
+    if (!name && !carnet) continue;
+    rows.push({ name, carnet, number: '', position: '' });
+  }
+  return rows;
+}
+
 // Preprocesa la imagen para mejorar el OCR en fotos: la amplía, pasa a escala
 // de grises y estira el contraste. Devuelve un <canvas>.
 function preprocessImage(file) {
@@ -279,9 +339,25 @@ function ImportPlayers({ teamId, onDone }) {
   const [ocrStatus, setOcrStatus] = useState('');
   const [ocrError, setOcrError] = useState('');
 
-  // Re-parsea cada vez que cambia el texto (pegado u OCR). Las ediciones en la
-  // tabla no tocan el texto; si se vuelve a editar el texto, la tabla se regenera.
-  useEffect(() => { setRows(parseRoster(text)); setResult(null); }, [text]);
+  // Aplica texto (pegado u OCR) y regenera las filas editables.
+  function applyText(t) { setText(t); setRows(parseRoster(t)); setResult(null); }
+
+  // Importar desde Excel/CSV.
+  async function onFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setOcrError('');
+    try {
+      const parsed = await parseSpreadsheet(file);
+      if (parsed.length === 0) { setOcrError('No se detectaron filas con CI en el archivo.'); return; }
+      setText('');
+      setRows(parsed);
+      setResult(null);
+    } catch (err) {
+      setOcrError(`No se pudo leer el archivo: ${err.message}`);
+    }
+  }
 
   async function onImage(e) {
     const file = e.target.files?.[0];
@@ -300,7 +376,7 @@ function ImportPlayers({ teamId, onDone }) {
       await worker.setParameters({ tessedit_pageseg_mode: '6' }); // tabla / bloque uniforme
       const { data } = await worker.recognize(canvas);
       await worker.terminate();
-      setText((prev) => (prev.trim() ? `${prev}\n${data.text}` : data.text));
+      applyText(text.trim() ? `${text}\n${data.text}` : data.text);
     } catch (err) {
       setOcrError(`No se pudo leer la imagen: ${err.message}`);
     } finally {
@@ -335,13 +411,17 @@ function ImportPlayers({ teamId, onDone }) {
     <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
       <h4 style={{ marginTop: 0 }}>Importar jugadores</h4>
       <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-        Pega una línea por jugador, o sube una <strong>imagen</strong> (foto o
-        captura). El texto se extrae abajo y, en la tabla, puedes <strong>corregir
-        cada fila</strong> antes de importar. Se detecta el CI (11 dígitos); el
-        número inicial y lo que esté entre paréntesis (DT/Cap) son opcionales.
+        Tres formas: sube un <strong>Excel/CSV</strong> (lo más exacto), pega el
+        texto, o sube una <strong>imagen</strong> (OCR). En la tabla puedes
+        <strong> corregir cada fila</strong> antes de importar. Por ahora solo se
+        guardan <strong>nombre y CI</strong>.
       </p>
 
       <div className="row" style={{ marginBottom: 10 }}>
+        <label className="btn secondary small" style={{ cursor: 'pointer', margin: 0 }}>
+          📄 Importar Excel / CSV
+          <input type="file" accept=".xlsx,.xls,.csv,.tsv" onChange={onFile} style={{ display: 'none' }} />
+        </label>
         <label className="btn secondary small" style={{ cursor: 'pointer', margin: 0 }}>
           🖼️ Subir imagen (OCR)
           <input type="file" accept="image/*" onChange={onImage} style={{ display: 'none' }} disabled={ocrBusy} />
@@ -354,7 +434,7 @@ function ImportPlayers({ teamId, onDone }) {
 
       <textarea
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => applyText(e.target.value)}
         rows={6}
         placeholder={'1-Rafael Vázquez - 90102507865 (DT)\n2-Nelson Rodríguez - 92111042189 (Cap)'}
         style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: 10,
