@@ -55,6 +55,55 @@ router.post('/teams/:teamId/players', requireAdmin, async (req, res) => {
   res.status(201).json(player);
 });
 
+// Importar varios jugadores de golpe (admin). Valida el CI y los duplicados
+// (en la liga y dentro de la propia lista) por fila; inserta los válidos y
+// devuelve el detalle de los que fallaron.
+// body: { players: [{ name, carnet, number?, position? }] }
+router.post('/teams/:teamId/players/bulk', requireAdmin, async (req, res) => {
+  const { players = [] } = req.body || {};
+  if (!Array.isArray(players) || players.length === 0) {
+    return res.status(400).json({ error: 'Lista vacía' });
+  }
+  const [[team]] = await pool.query('SELECT league_id FROM teams WHERE id = :id', { id: req.params.teamId });
+  if (!team) return res.status(404).json({ error: 'Equipo no encontrado' });
+
+  const created = [];
+  const errors = [];
+  const seen = new Set(); // carnés dentro de esta misma lista
+
+  for (const p of players) {
+    const name = (p?.name || '').trim();
+    if (!name) { errors.push({ name: p?.name || '(sin nombre)', carnet: p?.carnet, error: 'Nombre vacío' }); continue; }
+
+    const check = validateCarnet(p?.carnet);
+    if (!check.ok) { errors.push({ name, carnet: p?.carnet, error: check.error }); continue; }
+
+    if (seen.has(check.carnet)) {
+      errors.push({ name, carnet: check.carnet, error: 'CI repetido en la lista' });
+      continue;
+    }
+    const dup = await carnetConflict(team.league_id, check.carnet);
+    if (dup) {
+      errors.push({ name, carnet: check.carnet, error: `Ya existe: ${dup.name} (${dup.team_name})` });
+      continue;
+    }
+
+    seen.add(check.carnet);
+    const [r] = await pool.query(
+      `INSERT INTO players (team_id, name, carnet, number, position)
+       VALUES (:t, :n, :carnet, :num, :pos)`,
+      {
+        t: req.params.teamId, n: name, carnet: check.carnet,
+        num: p?.number === '' || p?.number == null ? null : Number(p.number),
+        pos: p?.position ? String(p.position).slice(0, 10) : null,
+      }
+    );
+    created.push({ id: r.insertId, name, carnet: check.carnet });
+  }
+
+  res.json({ createdCount: created.length, created, errors });
+});
+
 // Ficha de jugador con estadísticas (pública).
 router.get('/players/:id', async (req, res) => {
   const [[player]] = await pool.query(

@@ -12,6 +12,7 @@ export default function TeamDetail() {
   const [tab, setTab] = useState('batting');
   const [editingPlayer, setEditingPlayer] = useState(null); // objeto jugador o null
   const [showTeamEdit, setShowTeamEdit] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(() => {
     api.get(`/teams/${id}`).then(setData);
@@ -47,7 +48,19 @@ export default function TeamDetail() {
         <TeamEditor team={team} onSaved={() => { setShowTeamEdit(false); load(); }} />
       )}
 
-      {isAdmin && (
+      {isAdmin && !editingPlayer && (
+        <div className="row" style={{ margin: '8px 0' }}>
+          <button className="btn secondary small" onClick={() => setImporting((i) => !i)}>
+            {importing ? 'Cerrar importador' : '⤵ Importar lista de jugadores'}
+          </button>
+        </div>
+      )}
+
+      {isAdmin && importing && !editingPlayer && (
+        <ImportPlayers teamId={id} onDone={() => { setImporting(false); load(); }} />
+      )}
+
+      {isAdmin && !importing && (
         <PlayerForm
           key={editingPlayer?.id || 'new'}
           teamId={id}
@@ -181,6 +194,128 @@ function PitchingTable({ rows }) {
   );
 }
 
+// Interpreta una lista pegada. Por cada línea detecta el CI (11 dígitos); si
+// no hay CI, la línea se ignora (encabezados como "Equipo X:"). También saca
+// el número inicial ("1-") y una etiqueta entre paréntesis ("(DT)", "(Cap)").
+function parseRoster(text) {
+  const rows = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const ci = line.match(/\d{11}/);
+    if (!ci) continue; // encabezado / comentario
+    const carnet = ci[0];
+    let rest = line.replace(carnet, ' ');
+
+    let position = '';
+    const paren = rest.match(/\(([^)]+)\)/);
+    if (paren) { position = paren[1].trim().slice(0, 10); rest = rest.replace(paren[0], ' '); }
+
+    let number = '';
+    const num = rest.match(/^\s*(\d{1,3})\s*[-.)]\s*/);
+    if (num) { number = num[1]; rest = rest.slice(num[0].length); }
+
+    const name = rest.replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+    rows.push({ number, name, carnet, position });
+  }
+  return rows;
+}
+
+function ImportPlayers({ teamId, onDone }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const rows = parseRoster(text);
+  const checked = rows.map((r) => ({ ...r, check: validateCarnet(r.carnet), noName: !r.name }));
+  const validCount = checked.filter((r) => r.check.ok && !r.noName).length;
+
+  async function importar() {
+    setBusy(true); setResult(null);
+    try {
+      const payload = rows.map((r) => ({
+        name: r.name, carnet: r.carnet,
+        number: r.number === '' ? null : Number(r.number),
+        position: r.position || null,
+      }));
+      const res = await api.post(`/teams/${teamId}/players/bulk`, { players: payload });
+      setResult(res);
+      if (res.createdCount > 0 && res.errors.length === 0) {
+        onDone(); // todo bien: cierra y recarga
+      }
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
+      <h4 style={{ marginTop: 0 }}>Importar jugadores (pegar lista)</h4>
+      <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
+        Pega una línea por jugador. Se detecta el CI (11 dígitos); el número
+        inicial y lo que esté entre paréntesis (p. ej. DT, Cap) son opcionales.
+        Las líneas sin CI (como el nombre del equipo) se ignoran.
+      </p>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={8}
+        placeholder={'1-Rafael Vázquez - 90102507865 (DT)\n2-Nelson Rodríguez - 92111042189 (Cap)'}
+        style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: 10,
+                 borderRadius: 8, border: '1px solid var(--border)',
+                 background: 'var(--panel-2)', color: 'var(--text)', resize: 'vertical' }}
+      />
+
+      {rows.length > 0 && (
+        <div className="table-wrap" style={{ marginTop: 12 }}>
+          <table>
+            <thead><tr><th>#</th><th>Nombre</th><th>CI</th><th>Etiqueta</th><th>Estado</th></tr></thead>
+            <tbody>
+              {checked.map((r, i) => {
+                const ok = r.check.ok && !r.noName;
+                return (
+                  <tr key={i}>
+                    <td>{r.number}</td>
+                    <td>{r.name || <span className="muted">(sin nombre)</span>}</td>
+                    <td className="muted" style={{ fontSize: 12 }}>{r.carnet}</td>
+                    <td>{r.position}</td>
+                    <td style={{ color: ok ? 'var(--green)' : '#ff7a7a' }}>
+                      {ok ? `✓ ${r.check.birth}` : `⚠ ${r.noName ? 'Sin nombre' : r.check.error}`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {result && (
+        <div style={{ marginTop: 12 }}>
+          {result.createdCount > 0 && <div className="ok">Agregados: {result.createdCount}</div>}
+          {result.errors.length > 0 && (
+            <div className="error">
+              No se agregaron {result.errors.length}:
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {result.errors.map((e, i) => (
+                  <li key={i}>{e.name} ({e.carnet}): {e.error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="row" style={{ marginTop: 12 }}>
+        <button className="btn" onClick={importar} disabled={busy || validCount === 0}>
+          {busy ? 'Importando…' : `Importar ${validCount} jugador(es)`}
+        </button>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {rows.length} línea(s) detectada(s), {validCount} válida(s).
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Formulario que sirve tanto para agregar como para editar un jugador.
 function PlayerForm({ teamId, player, onSaved, onCancel }) {
   const editing = !!player;
@@ -232,15 +367,15 @@ function PlayerForm({ teamId, player, onSaved, onCancel }) {
           <input value={form.name} onChange={set('name')}
                  onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
         <div style={{ maxWidth: 200 }}>
-          <label>Carné de identidad (11 dígitos)</label>
+          <label>CI</label>
           <input value={form.carnet} onChange={onCarnet} inputMode="numeric"
                  placeholder="aammdd#####"
                  style={{ borderColor: form.carnet && !carnetCheck.ok ? 'var(--accent)' : undefined }} />
-          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-            {form.carnet === '' ? 'Primeros 6 dígitos: año, mes, día'
-              : carnetCheck.ok ? `✓ Nacimiento: ${carnetCheck.birth}`
-              : `⚠ ${carnetCheck.error}`}
-          </div>
+          {form.carnet !== '' && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+              {carnetCheck.ok ? `✓ Nacimiento: ${carnetCheck.birth}` : `⚠ ${carnetCheck.error}`}
+            </div>
+          )}
         </div>
         <div style={{ maxWidth: 90 }}><label>Número</label>
           <input type="number" value={form.number} onChange={set('number')} /></div>
