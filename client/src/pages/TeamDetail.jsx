@@ -215,36 +215,91 @@ function parseRoster(text) {
     const num = rest.match(/^\s*(\d{1,3})\s*[-.)]\s*/);
     if (num) { number = num[1]; rest = rest.slice(num[0].length); }
 
-    let name = rest.replace(/[-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+    let name = rest
+      .replace(/[|_\[\]{}<>·•]/g, ' ')   // ruido de bordes de tabla (fotos de hojas de cálculo)
+      .replace(/[-–—]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
     // Quita un número suelto al inicio (índice de fila de una hoja de cálculo).
     name = name.replace(/^\d{1,3}\s+/, '').trim();
-    // Quita símbolos iniciales que deja el OCR (comillas, puntos, etc.).
-    name = name.replace(/^[^\p{L}]+/u, '').trim();
+    // Quita símbolos sobrantes al inicio y al final que deja el OCR.
+    name = name.replace(/^[^\p{L}]+/u, '').replace(/[^\p{L}\s]+$/u, '').trim();
     rows.push({ number, name, carnet, position });
   }
   return rows;
 }
 
+// Preprocesa la imagen para mejorar el OCR en fotos: la amplía, pasa a escala
+// de grises y estira el contraste. Devuelve un <canvas>.
+function preprocessImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(2.5, Math.max(1, 1800 / img.width));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      try {
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const d = imgData.data;
+        let min = 255, max = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+          d[i] = d[i + 1] = d[i + 2] = g;
+          if (g < min) min = g;
+          if (g > max) max = g;
+        }
+        const range = Math.max(1, max - min);
+        for (let i = 0; i < d.length; i += 4) {
+          const v = ((d[i] - min) * 255) / range; // estiramiento de contraste
+          d[i] = d[i + 1] = d[i + 2] = v;
+        }
+        ctx.putImageData(imgData, 0, 0);
+      } catch {
+        /* getImageData puede fallar por seguridad; se usa el canvas sin filtro */
+      }
+      URL.revokeObjectURL(img.src);
+      resolve(canvas);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 function ImportPlayers({ teamId, onDone }) {
   const [text, setText] = useState('');
+  const [rows, setRows] = useState([]);      // filas editables
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatus, setOcrStatus] = useState('');
   const [ocrError, setOcrError] = useState('');
+
+  // Re-parsea cada vez que cambia el texto (pegado u OCR). Las ediciones en la
+  // tabla no tocan el texto; si se vuelve a editar el texto, la tabla se regenera.
+  useEffect(() => { setRows(parseRoster(text)); setResult(null); }, [text]);
 
   async function onImage(e) {
     const file = e.target.files?.[0];
-    e.target.value = ''; // permite volver a elegir la misma imagen
+    e.target.value = '';
     if (!file) return;
-    setOcrBusy(true); setOcrProgress(0); setOcrError('');
+    setOcrBusy(true); setOcrProgress(0); setOcrError(''); setOcrStatus('Preparando…');
     try {
       const Tesseract = await import('tesseract.js');
-      const { data } = await Tesseract.recognize(file, 'spa', {
+      const canvas = await preprocessImage(file);
+      const worker = await Tesseract.createWorker('spa', 1, {
         logger: (m) => {
-          if (m.status === 'recognizing text') setOcrProgress(Math.round(m.progress * 100));
+          if (m.status === 'recognizing text') { setOcrStatus('Reconociendo'); setOcrProgress(Math.round(m.progress * 100)); }
+          else setOcrStatus(m.status);
         },
       });
+      await worker.setParameters({ tessedit_pageseg_mode: '6' }); // tabla / bloque uniforme
+      const { data } = await worker.recognize(canvas);
+      await worker.terminate();
       setText((prev) => (prev.trim() ? `${prev}\n${data.text}` : data.text));
     } catch (err) {
       setOcrError(`No se pudo leer la imagen: ${err.message}`);
@@ -253,34 +308,37 @@ function ImportPlayers({ teamId, onDone }) {
     }
   }
 
-  const rows = parseRoster(text);
-  const checked = rows.map((r) => ({ ...r, check: validateCarnet(r.carnet), noName: !r.name }));
+  const checked = rows.map((r) => ({ ...r, check: validateCarnet(r.carnet), noName: !r.name?.trim() }));
   const validCount = checked.filter((r) => r.check.ok && !r.noName).length;
+
+  const editRow = (i, key, val) =>
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [key]: val } : r)));
+  const removeRow = (i) => setRows((rs) => rs.filter((_, idx) => idx !== i));
 
   async function importar() {
     setBusy(true); setResult(null);
     try {
-      const payload = rows.map((r) => ({
-        name: r.name, carnet: r.carnet,
-        number: r.number === '' ? null : Number(r.number),
-        position: r.position || null,
-      }));
+      const payload = rows
+        .filter((r) => r.name?.trim() && /^\d{11}$/.test(String(r.carnet)))
+        .map((r) => ({
+          name: r.name.trim(), carnet: String(r.carnet),
+          number: r.number === '' || r.number == null ? null : Number(r.number),
+          position: r.position || null,
+        }));
       const res = await api.post(`/teams/${teamId}/players/bulk`, { players: payload });
       setResult(res);
-      if (res.createdCount > 0 && res.errors.length === 0) {
-        onDone(); // todo bien: cierra y recarga
-      }
+      if (res.createdCount > 0 && res.errors.length === 0) onDone();
     } finally { setBusy(false); }
   }
 
   return (
     <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
-      <h4 style={{ marginTop: 0 }}>Importar jugadores (pegar lista)</h4>
+      <h4 style={{ marginTop: 0 }}>Importar jugadores</h4>
       <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
         Pega una línea por jugador, o sube una <strong>imagen</strong> (foto o
-        captura) y el texto se extraerá aquí para que lo revises. Se detecta el
-        CI (11 dígitos); el número inicial y lo que esté entre paréntesis
-        (p. ej. DT, Cap) son opcionales. Las líneas sin CI se ignoran.
+        captura). El texto se extrae abajo y, en la tabla, puedes <strong>corregir
+        cada fila</strong> antes de importar. Se detecta el CI (11 dígitos); el
+        número inicial y lo que esté entre paréntesis (DT/Cap) son opcionales.
       </p>
 
       <div className="row" style={{ marginBottom: 10 }}>
@@ -288,14 +346,16 @@ function ImportPlayers({ teamId, onDone }) {
           🖼️ Subir imagen (OCR)
           <input type="file" accept="image/*" onChange={onImage} style={{ display: 'none' }} disabled={ocrBusy} />
         </label>
-        {ocrBusy && <span className="muted" style={{ fontSize: 13 }}>Leyendo imagen… {ocrProgress}%</span>}
+        {ocrBusy && <span className="muted" style={{ fontSize: 13 }}>
+          {ocrStatus}{ocrStatus === 'Reconociendo' ? ` ${ocrProgress}%` : '…'}
+        </span>}
       </div>
       {ocrError && <div className="error">{ocrError}</div>}
 
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
-        rows={8}
+        rows={6}
         placeholder={'1-Rafael Vázquez - 90102507865 (DT)\n2-Nelson Rodríguez - 92111042189 (Cap)'}
         style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, padding: 10,
                  borderRadius: 8, border: '1px solid var(--border)',
@@ -305,19 +365,25 @@ function ImportPlayers({ teamId, onDone }) {
       {rows.length > 0 && (
         <div className="table-wrap" style={{ marginTop: 12 }}>
           <table>
-            <thead><tr><th>#</th><th>Nombre</th><th>CI</th><th>Etiqueta</th><th>Estado</th></tr></thead>
+            <thead><tr><th>#</th><th>Nombre</th><th>CI</th><th>Etiq.</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {checked.map((r, i) => {
                 const ok = r.check.ok && !r.noName;
                 return (
                   <tr key={i}>
-                    <td>{r.number}</td>
-                    <td>{r.name || <span className="muted">(sin nombre)</span>}</td>
-                    <td className="muted" style={{ fontSize: 12 }}>{r.carnet}</td>
-                    <td>{r.position}</td>
-                    <td style={{ color: ok ? 'var(--green)' : '#ff7a7a' }}>
+                    <td><input value={r.number ?? ''} onChange={(e) => editRow(i, 'number', e.target.value)}
+                               style={{ width: 44 }} /></td>
+                    <td><input value={r.name ?? ''} onChange={(e) => editRow(i, 'name', e.target.value)}
+                               style={{ minWidth: 180 }} /></td>
+                    <td><input value={r.carnet ?? ''} inputMode="numeric"
+                               onChange={(e) => editRow(i, 'carnet', e.target.value.replace(/\D/g, '').slice(0, 11))}
+                               style={{ width: 120, fontFamily: 'monospace' }} /></td>
+                    <td><input value={r.position ?? ''} onChange={(e) => editRow(i, 'position', e.target.value)}
+                               style={{ width: 56 }} /></td>
+                    <td style={{ color: ok ? 'var(--green)' : '#ff7a7a', fontSize: 12 }}>
                       {ok ? `✓ ${r.check.birth}` : `⚠ ${r.noName ? 'Sin nombre' : r.check.error}`}
                     </td>
+                    <td><button className="btn danger small" onClick={() => removeRow(i)}>×</button></td>
                   </tr>
                 );
               })}
@@ -347,7 +413,7 @@ function ImportPlayers({ teamId, onDone }) {
           {busy ? 'Importando…' : `Importar ${validCount} jugador(es)`}
         </button>
         <span className="muted" style={{ fontSize: 13 }}>
-          {rows.length} línea(s) detectada(s), {validCount} válida(s).
+          {rows.length} fila(s), {validCount} válida(s). Corrige las marcadas con ⚠.
         </span>
       </div>
     </div>
