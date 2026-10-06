@@ -13,6 +13,21 @@ const POS = ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'P'];
 const rand = (a) => a[Math.floor(Math.random() * a.length)];
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
+// Genera carnés válidos y únicos (11 dígitos; aammdd + 5 dígitos).
+const usedCarnets = new Set();
+function makeCarnet() {
+  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  for (let i = 0; i < 1000; i++) {
+    const y = randInt(80, 99); // años 1980-1999 para el ejemplo
+    const mm = randInt(1, 12);
+    const dd = randInt(1, daysInMonth[mm - 1]);
+    const tail = String(randInt(0, 99999)).padStart(5, '0');
+    const c = `${String(y).padStart(2, '0')}${String(mm).padStart(2, '0')}${String(dd).padStart(2, '0')}${tail}`;
+    if (!usedCarnets.has(c)) { usedCarnets.add(c); return c; }
+  }
+  throw new Error('No se pudo generar un carné único');
+}
+
 async function main() {
   console.log('Generando datos de ejemplo...');
 
@@ -34,9 +49,9 @@ async function main() {
       teamIds.push(teamId);
       for (let i = 1; i <= 12; i++) {
         await conn.query(
-          `INSERT INTO players (team_id, name, number, position, bats, throws)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [teamId, `${rand(FIRST)} ${rand(LAST)}`, i, rand(POS), rand(['R', 'L', 'S']), rand(['R', 'L'])]
+          `INSERT INTO players (team_id, name, carnet, number, position, bats, throws)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [teamId, `${rand(FIRST)} ${rand(LAST)}`, makeCarnet(), i, rand(POS), rand(['R', 'L', 'S']), rand(['R', 'L'])]
         );
       }
     }

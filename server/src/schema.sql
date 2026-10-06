@@ -46,11 +46,13 @@ CREATE TABLE IF NOT EXISTS players (
   id         INT AUTO_INCREMENT PRIMARY KEY,
   team_id    INT NOT NULL,
   name       VARCHAR(120) NOT NULL,
+  carnet     VARCHAR(11),              -- carné de identidad (11 dígitos, aammdd...)
   number     INT,
   position   VARCHAR(10),
   bats       ENUM('R','L','S'),
   throws     ENUM('R','L'),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_players_carnet (carnet),
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

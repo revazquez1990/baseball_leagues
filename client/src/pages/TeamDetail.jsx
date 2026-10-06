@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
 import TeamLogo from '../components/TeamLogo.jsx';
+import { validateCarnet } from '../carnet.js';
 
 export default function TeamDetail() {
   const { id } = useParams();
@@ -123,7 +124,7 @@ function BattingTable({ rows, isAdmin, onEdit, onChange }) {
       <table>
         <thead>
           <tr>
-            <th>#</th><th>Jugador</th><th>Pos</th><th>JJ</th><th>VB</th><th>C</th><th>H</th>
+            <th>#</th><th>Jugador</th><th>Carné</th><th>Pos</th><th>JJ</th><th>VB</th><th>C</th><th>H</th>
             <th>2B</th><th>3B</th><th>HR</th><th>CI</th><th>BB</th><th>K</th><th>SB</th>
             <th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th>{isAdmin && <th></th>}
           </tr>
@@ -133,6 +134,7 @@ function BattingTable({ rows, isAdmin, onEdit, onChange }) {
             <tr key={p.id}>
               <td>{p.number ?? ''}</td>
               <td>{p.name}</td>
+              <td className="muted" style={{ fontSize: 12 }}>{p.carnet || '—'}</td>
               <td>{p.position || ''}</td>
               <td>{p.gp}</td><td>{p.ab}</td><td>{p.r}</td><td>{p.h}</td>
               <td>{p.b2}</td><td>{p.b3}</td><td>{p.hr}</td><td>{p.rbi}</td>
@@ -184,25 +186,41 @@ function PlayerForm({ teamId, player, onSaved, onCancel }) {
   const editing = !!player;
   const [form, setForm] = useState({
     name: player?.name || '',
+    carnet: player?.carnet || '',
     number: player?.number ?? '',
     position: player?.position || '',
     bats: player?.bats || 'R',
     throws: player?.throws || 'R',
   });
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
+  const carnetCheck = validateCarnet(form.carnet);
+
   async function submit() {
-    if (!form.name.trim()) return;
+    setError('');
+    if (!form.name.trim()) { setError('El nombre es obligatorio'); return; }
+    if (!carnetCheck.ok) { setError(`Carné: ${carnetCheck.error}`); return; }
     setBusy(true);
-    const payload = { ...form, number: form.number === '' ? null : Number(form.number) };
+    const payload = {
+      ...form,
+      carnet: carnetCheck.carnet,
+      number: form.number === '' ? null : Number(form.number),
+    };
     try {
       if (editing) await api.put(`/players/${player.id}`, payload);
       else await api.post(`/teams/${teamId}/players`, payload);
-      if (!editing) setForm({ name: '', number: '', position: '', bats: 'R', throws: 'R' });
+      if (!editing) setForm({ name: '', carnet: '', number: '', position: '', bats: 'R', throws: 'R' });
       onSaved();
+    } catch (err) {
+      setError(err.message); // p.ej. carné duplicado en la liga (409)
     } finally { setBusy(false); }
   }
+
+  // Solo dígitos en el carné, máximo 11.
+  const onCarnet = (e) =>
+    setForm({ ...form, carnet: e.target.value.replace(/\D/g, '').slice(0, 11) });
 
   return (
     <div className="panel" style={{ borderColor: editing ? 'var(--accent)' : 'var(--accent-2)' }}>
@@ -213,17 +231,29 @@ function PlayerForm({ teamId, player, onSaved, onCancel }) {
         <div style={{ flex: 2 }}><label>Nombre</label>
           <input value={form.name} onChange={set('name')}
                  onKeyDown={(e) => e.key === 'Enter' && submit()} /></div>
+        <div style={{ maxWidth: 200 }}>
+          <label>Carné de identidad (11 dígitos)</label>
+          <input value={form.carnet} onChange={onCarnet} inputMode="numeric"
+                 placeholder="aammdd#####"
+                 style={{ borderColor: form.carnet && !carnetCheck.ok ? 'var(--accent)' : undefined }} />
+          <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+            {form.carnet === '' ? 'Primeros 6 dígitos: año, mes, día'
+              : carnetCheck.ok ? `✓ Nacimiento: ${carnetCheck.birth}`
+              : `⚠ ${carnetCheck.error}`}
+          </div>
+        </div>
         <div style={{ maxWidth: 90 }}><label>Número</label>
           <input type="number" value={form.number} onChange={set('number')} /></div>
         <div style={{ maxWidth: 110 }}><label>Posición</label>
           <input value={form.position} onChange={set('position')} placeholder="SS" /></div>
-        <div style={{ maxWidth: 100 }}><label>Batea</label>
+        <div style={{ maxWidth: 90 }}><label>Batea</label>
           <select value={form.bats} onChange={set('bats')}><option>R</option><option>L</option><option>S</option></select></div>
-        <div style={{ maxWidth: 100 }}><label>Lanza</label>
+        <div style={{ maxWidth: 90 }}><label>Lanza</label>
           <select value={form.throws} onChange={set('throws')}><option>R</option><option>L</option></select></div>
       </div>
+      {error && <div className="error">{error}</div>}
       <div className="row">
-        <button className="btn" onClick={submit} disabled={busy}>
+        <button className="btn" onClick={submit} disabled={busy || !carnetCheck.ok}>
           {editing ? 'Guardar cambios' : 'Agregar'}
         </button>
         {editing && <button className="btn secondary" onClick={onCancel}>Cancelar</button>}

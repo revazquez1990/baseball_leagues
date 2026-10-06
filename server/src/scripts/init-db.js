@@ -58,6 +58,18 @@ async function main() {
     console.log('Migración: columna teams.logo_url añadida.');
   }
 
+  // Migración idempotente: columna players.carnet (carné de identidad).
+  const [carnetCols] = await root.query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = 'players' AND column_name = 'carnet'`,
+    [config.db.database]
+  );
+  if (carnetCols[0].n === 0) {
+    await root.query('ALTER TABLE players ADD COLUMN carnet VARCHAR(11) NULL AFTER name');
+    await root.query('ALTER TABLE players ADD INDEX idx_players_carnet (carnet)');
+    console.log('Migración: columna players.carnet añadida.');
+  }
+
   // 3. Crea el usuario admin si no existe.
   const hash = await bcrypt.hash(config.admin.password, 10);
   await root.query(

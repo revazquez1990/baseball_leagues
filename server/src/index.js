@@ -32,6 +32,15 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: 'Error interno', detail: err.message });
 });
 
+// Red de seguridad: un error asíncrono sin capturar en un handler no debe
+// tumbar todo el servidor. Se registra y el proceso sigue vivo.
+process.on('unhandledRejection', (err) => {
+  console.error('unhandledRejection:', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('uncaughtException:', err);
+});
+
 app.listen(config.port, () => {
   console.log(`API Pelota escuchando en http://localhost:${config.port}`);
 });

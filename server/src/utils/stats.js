@@ -94,7 +94,7 @@ export async function playerPitching(playerId) {
 // Estadísticas de bateo de todos los jugadores de un equipo.
 export async function teamBatting(teamId) {
   const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.number, p.position, ${BAT_SUM}
+    `SELECT p.id, p.name, p.carnet, p.number, p.position, ${BAT_SUM}
        FROM players p
        LEFT JOIN batting_lines bl ON bl.player_id = p.id
        LEFT JOIN games g ON g.id = bl.game_id AND g.status='final'
@@ -107,7 +107,7 @@ export async function teamBatting(teamId) {
     const t = z(row);
     return {
       ...t, ...battingRates(t),
-      id: row.id, name: row.name, number: row.number, position: row.position,
+      id: row.id, name: row.name, carnet: row.carnet, number: row.number, position: row.position,
     };
   });
 }
