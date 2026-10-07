@@ -373,7 +373,7 @@ function ImportPlayers({ teamId, onDone }) {
           else setOcrStatus(m.status);
         },
       });
-      await worker.setParameters({ tessedit_pageseg_mode: '6' }); // tabla / bloque uniforme
+      await worker.setParameters({ tessedit_pageseg_mode: '4' }); // columna de texto (listas/tablas)
       const { data } = await worker.recognize(canvas);
       await worker.terminate();
       applyText(text.trim() ? `${text}\n${data.text}` : data.text);
