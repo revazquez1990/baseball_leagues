@@ -16,9 +16,10 @@ function outsToIp(outs) {
   return `${Math.floor(outs / 3)}.${outs % 3}`;
 }
 
+// Columnas de bateo visibles en el boxscore. Las demás (C, 2B, 3B, K, HBP,
+// SF, SB) no se anotan por ahora y quedan ocultas (se guardan en 0).
 const BAT_COLS = [
-  ['ab', 'VB'], ['r', 'C'], ['h', 'H'], ['b2', '2B'], ['b3', '3B'], ['hr', 'HR'],
-  ['rbi', 'CI'], ['bb', 'BB'], ['so', 'K'], ['hbp', 'HBP'], ['sf', 'SF'], ['sb', 'SB'],
+  ['ab', 'VB'], ['h', 'H'], ['hr', 'HR'], ['rbi', 'CI'], ['bb', 'BB'],
 ];
 const PIT_COLS = [
   ['h', 'H'], ['r', 'C'], ['er', 'CL'], ['bb', 'BB'], ['so', 'K'], ['hr', 'HR'], ['bf', 'BE'],
@@ -125,6 +126,8 @@ function BoxscoreEditor({ game, existing, onSaved }) {
   const [rosters, setRosters] = useState({ home: [], away: [] });
   const [bat, setBat] = useState({});   // playerId -> {ab,r,...}
   const [pit, setPit] = useState({});   // playerId -> {ip,h,...}
+  const [awayRuns, setAwayRuns] = useState(game.away_score ?? '');
+  const [homeRuns, setHomeRuns] = useState(game.home_score ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -177,7 +180,11 @@ function BoxscoreEditor({ game, existing, onSaved }) {
           }
         }
       }
-      await api.post(`/games/${game.id}/boxscore`, { batting, pitching });
+      await api.post(`/games/${game.id}/boxscore`, {
+        batting, pitching,
+        awayScore: awayRuns === '' ? 0 : Number(awayRuns),
+        homeScore: homeRuns === '' ? 0 : Number(homeRuns),
+      });
       onSaved();
     } catch (err) { setError(err.message); }
     finally { setBusy(false); }
@@ -186,10 +193,26 @@ function BoxscoreEditor({ game, existing, onSaved }) {
   return (
     <div>
       <p className="muted">
-        Escribe las estadísticas de cada jugador. El marcador se calcula solo con las carreras (C).
+        Escribe las estadísticas de cada jugador. El marcador (carreras) se pone aquí abajo.
         IP usa notación béisbol: 6.2 = 6 entradas y 2 outs.
       </p>
       {error && <div className="error">{error}</div>}
+
+      <div className="panel">
+        <h3 style={{ marginTop: 0 }}>Marcador final</h3>
+        <div className="form-row">
+          <div style={{ maxWidth: 150 }}>
+            <label>Carreras {game.away_name} (visitante)</label>
+            <input type="number" min="0" value={awayRuns}
+                   onChange={(e) => setAwayRuns(e.target.value)} />
+          </div>
+          <div style={{ maxWidth: 150 }}>
+            <label>Carreras {game.home_name} (local)</label>
+            <input type="number" min="0" value={homeRuns}
+                   onChange={(e) => setHomeRuns(e.target.value)} />
+          </div>
+        </div>
+      </div>
 
       {[['away', game.away_name, game.away_team_id], ['home', game.home_name, game.home_team_id]].map(
         ([side, name]) => (

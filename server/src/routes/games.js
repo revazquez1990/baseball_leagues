@@ -141,7 +141,10 @@ router.put('/games/:id', requireAdmin, async (req, res) => {
  */
 router.post('/games/:id/boxscore', requireAdmin, async (req, res) => {
   const { id } = req.params;
-  const { batting = [], pitching = [] } = req.body || {};
+  const { batting = [], pitching = [], homeScore, awayScore } = req.body || {};
+  // Si el cliente envía el marcador explícito, se usa; si no, se calcula
+  // sumando las carreras (r) de los bateadores de cada equipo.
+  const explicitScore = homeScore != null && awayScore != null;
 
   const [[game]] = await pool.query('SELECT * FROM games WHERE id = :id', { id });
   if (!game) return res.status(404).json({ error: 'Juego no encontrado' });
@@ -172,19 +175,26 @@ router.post('/games/:id/boxscore', requireAdmin, async (req, res) => {
       );
     }
 
-    // Marcador = suma de carreras de bateadores por equipo.
-    const [[home]] = await conn.query(
-      'SELECT COALESCE(SUM(r),0) r FROM batting_lines WHERE game_id = :id AND team_id = :t',
-      { id, t: game.home_team_id }
-    );
-    const [[away]] = await conn.query(
-      'SELECT COALESCE(SUM(r),0) r FROM batting_lines WHERE game_id = :id AND team_id = :t',
-      { id, t: game.away_team_id }
-    );
+    // Marcador: explícito desde el cliente, o suma de carreras de bateadores.
+    let h, a;
+    if (explicitScore) {
+      h = Math.max(0, Number(homeScore) || 0);
+      a = Math.max(0, Number(awayScore) || 0);
+    } else {
+      const [[home]] = await conn.query(
+        'SELECT COALESCE(SUM(r),0) r FROM batting_lines WHERE game_id = :id AND team_id = :t',
+        { id, t: game.home_team_id }
+      );
+      const [[away]] = await conn.query(
+        'SELECT COALESCE(SUM(r),0) r FROM batting_lines WHERE game_id = :id AND team_id = :t',
+        { id, t: game.away_team_id }
+      );
+      h = Number(home.r); a = Number(away.r);
+    }
 
     await conn.query(
       "UPDATE games SET home_score = :h, away_score = :a, status = 'final' WHERE id = :id",
-      { id, h: Number(home.r), a: Number(away.r) }
+      { id, h, a }
     );
     await conn.query(
       "UPDATE leagues SET status = 'in_progress' WHERE id = :lid AND status != 'finished'",
