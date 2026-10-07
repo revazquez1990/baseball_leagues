@@ -21,8 +21,10 @@ function outsToIp(outs) {
 const BAT_COLS = [
   ['ab', 'VB'], ['h', 'H'], ['hr', 'HR'], ['rbi', 'CI'], ['bb', 'BB'],
 ];
+// Columnas de pitcheo visibles en el boxscore. Las demás (H, C, BB, HR, BE)
+// no se anotan por ahora y quedan ocultas (se guardan en 0).
 const PIT_COLS = [
-  ['h', 'H'], ['r', 'C'], ['er', 'CL'], ['bb', 'BB'], ['so', 'K'], ['hr', 'HR'], ['bf', 'BE'],
+  ['er', 'CL'], ['so', 'K'],
 ];
 
 export default function GameDetail() {
