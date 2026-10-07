@@ -3,20 +3,14 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 
 const BAT_CATS = [
-  { key: 'avg', label: 'Average (AVG)', fmt: (v) => v.avg.toFixed(3), rate: true },
+  { key: 'avg', label: 'Average (AVG)', fmt: (v) => v.avg.toFixed(3) },
   { key: 'hr', label: 'Jonrones (HR)', fmt: (v) => v.hr },
   { key: 'rbi', label: 'Impulsadas (RBI)', fmt: (v) => v.rbi },
-  { key: 'h', label: 'Hits (H)', fmt: (v) => v.h },
-  { key: 'r', label: 'Carreras (R)', fmt: (v) => v.r },
-  { key: 'sb', label: 'Bases robadas (SB)', fmt: (v) => v.sb },
-  { key: 'ops', label: 'OPS', fmt: (v) => v.ops.toFixed(3), rate: true },
 ];
 const PIT_CATS = [
   { key: 'w', label: 'Victorias (W)', fmt: (v) => v.w },
-  { key: 'era', label: 'Efectividad (ERA)', fmt: (v) => v.era.toFixed(2), rate: true },
+  { key: 'era', label: 'Efectividad (ERA)', fmt: (v) => v.era.toFixed(2) },
   { key: 'so', label: 'Ponches (K)', fmt: (v) => v.so },
-  { key: 'sv', label: 'Salvados (SV)', fmt: (v) => v.sv },
-  { key: 'whip', label: 'WHIP', fmt: (v) => v.whip.toFixed(2), rate: true },
 ];
 
 export default function Leaders({ leagueId }) {
@@ -57,20 +51,18 @@ function LeaderBox({ title, rows, fmt }) {
       {(!rows || rows.length === 0) ? (
         <div className="muted" style={{ fontSize: 13 }}>Sin datos</div>
       ) : (
-        <table>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.id}>
-                <td style={{ width: 20, color: 'var(--muted)' }}>{i + 1}</td>
-                <td>
-                  <Link to={`/teams/${r.teamId}`}>{r.name}</Link>
-                  <div className="muted" style={{ fontSize: 11 }}>{r.teamName}</div>
-                </td>
-                <td style={{ fontWeight: 700 }}>{fmt(r)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <ol className="leader-list">
+          {rows.map((r, i) => (
+            <li key={r.id}>
+              <span className="rank">{i + 1}</span>
+              <span className="who">
+                <Link to={`/teams/${r.teamId}`} className="pname">{r.name}</Link>
+                <span className="pteam">{r.teamName}</span>
+              </span>
+              <span className="val">{fmt(r)}</span>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );

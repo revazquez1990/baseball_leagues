@@ -130,5 +130,17 @@ input[type=number] { text-align: right; }
 .bracket-game:hover { background: var(--border); }
 
 .login-wrap { max-width: 360px; margin: 80px auto; }
-.leader-box { margin-bottom: 20px; }
+.leader-box { margin-bottom: 20px; overflow: hidden; }
 .leader-box h4 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+
+.leader-list { list-style: none; margin: 0; padding: 0; }
+.leader-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 0; border-bottom: 1px solid var(--border);
+}
+.leader-list li:last-child { border-bottom: none; }
+.leader-list .rank { width: 18px; flex-shrink: 0; text-align: right; color: var(--muted); font-size: 12px; }
+.leader-list .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.leader-list .pname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.leader-list .pteam { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leader-list .val { flex-shrink: 0; margin-left: auto; font-weight: 800; font-variant-numeric: tabular-nums; }
