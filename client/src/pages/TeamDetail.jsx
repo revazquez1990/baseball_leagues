@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { api } from '../api.js';
 import { useAuth } from '../auth.jsx';
@@ -20,7 +20,7 @@ export default function TeamDetail() {
   useEffect(load, [load]);
 
   if (!data) return <div className="empty">Cargando…</div>;
-  const { team, record, roster, pitching } = data;
+  const { team, record, roster, pitching, battingTotal, pitchingTotal } = data;
 
   return (
     <div>
@@ -76,9 +76,9 @@ export default function TeamDetail() {
       </div>
 
       {tab === 'batting' ? (
-        <BattingTable rows={roster} isAdmin={isAdmin} onEdit={setEditingPlayer} onChange={load} />
+        <BattingTable rows={roster} totals={battingTotal} isAdmin={isAdmin} onEdit={setEditingPlayer} onChange={load} />
       ) : (
-        <PitchingTable rows={pitching} />
+        <PitchingTable rows={pitching} totals={pitchingTotal} />
       )}
     </div>
   );
@@ -125,7 +125,109 @@ function TeamEditor({ team, onSaved }) {
   );
 }
 
-function BattingTable({ rows, isAdmin, onEdit, onChange }) {
+// Columnas de la tabla de bateo. `key` es el campo por el que se ordena;
+// `render` (opcional) formatea la celda. Por defecto muestra p[key].
+const BAT_COLS = [
+  { key: 'number', label: '#', render: (p) => p.number ?? '' },
+  { key: 'name', label: 'Jugador' },
+  { key: 'carnet', label: 'Carné', render: (p) => p.carnet || '—', cellClass: 'muted', cellStyle: { fontSize: 12 } },
+  { key: 'position', label: 'Pos', render: (p) => p.position || '' },
+  { key: 'gp', label: 'JJ' }, { key: 'ab', label: 'VB' }, { key: 'r', label: 'C' }, { key: 'h', label: 'H' },
+  { key: 'b2', label: '2B' }, { key: 'b3', label: '3B' }, { key: 'hr', label: 'HR' }, { key: 'rbi', label: 'CI' },
+  { key: 'bb', label: 'BB' }, { key: 'so', label: 'K' }, { key: 'sb', label: 'SB' },
+  { key: 'avg', label: 'AVG', render: (p) => p.avg.toFixed(3) },
+  { key: 'obp', label: 'OBP', render: (p) => p.obp.toFixed(3) },
+  { key: 'slg', label: 'SLG', render: (p) => p.slg.toFixed(3) },
+  { key: 'ops', label: 'OPS', render: (p) => p.ops.toFixed(3), cellStyle: { fontWeight: 700 } },
+];
+
+// Columnas de pitcheo. IP se muestra como texto (p.ip) pero se ORDENA por
+// `outs` para que el orden sea numéricamente correcto (3.1 < 3.2 < 4.0).
+const PIT_COLS = [
+  { key: 'number', label: '#', render: (p) => p.number ?? '' },
+  { key: 'name', label: 'Lanzador' },
+  { key: 'gp', label: 'JJ' },
+  { key: 'outs', label: 'IP', render: (p) => p.ip },
+  { key: 'h', label: 'H' }, { key: 'r', label: 'C' }, { key: 'er', label: 'CL' },
+  { key: 'bb', label: 'BB' }, { key: 'so', label: 'K' }, { key: 'hr', label: 'HR' },
+  { key: 'w', label: 'G' }, { key: 'l', label: 'P' }, { key: 'sv', label: 'SV' },
+  { key: 'era', label: 'ERA', render: (p) => p.era.toFixed(2), cellStyle: { fontWeight: 700 } },
+  { key: 'whip', label: 'WHIP', render: (p) => p.whip.toFixed(2) },
+];
+
+function sortRows(rows, { key, dir }) {
+  if (!key) return rows;
+  const arr = [...rows];
+  arr.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    let cmp;
+    if (typeof av === 'number' && typeof bv === 'number') cmp = av - bv;
+    else cmp = String(av ?? '').localeCompare(String(bv ?? ''), 'es', { numeric: true });
+    return dir === 'asc' ? cmp : -cmp;
+  });
+  return arr;
+}
+
+// Hook de ordenamiento por columna. El primer clic ordena descendente (para
+// ver primero a los líderes); el segundo invierte a ascendente.
+function useColumnSort(rows) {
+  const [sort, setSort] = useState({ key: null, dir: 'desc' });
+  const sorted = useMemo(() => sortRows(rows, sort), [rows, sort]);
+  const onSort = (key) =>
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }));
+  return { sorted, sort, onSort };
+}
+
+// Fila de encabezados clickeables con indicador de orden (▼/▲).
+function SortHeaders({ cols, sort, onSort, trailingEmpty = false }) {
+  return (
+    <tr>
+      {cols.map((c) => (
+        <th
+          key={c.key}
+          onClick={() => onSort(c.key)}
+          style={{ cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}
+          title="Clic para ordenar"
+        >
+          {c.label}{sort.key === c.key ? (sort.dir === 'desc' ? ' ▼' : ' ▲') : ''}
+        </th>
+      ))}
+      {trailingEmpty && <th></th>}
+    </tr>
+  );
+}
+
+// Fila de totales del equipo (en el <tfoot>). Las columnas descriptivas
+// (número, carné, posición, JJ) van vacías; en la de nombre se pone "TOTALES".
+function TotalsRow({ cols, totals, labelKey = 'name', trailingEmpty = false }) {
+  const descriptive = new Set(['number', 'carnet', 'position', 'gp']);
+  return (
+    <tr style={{ fontWeight: 700, borderTop: '2px solid var(--accent-2)' }}>
+      {cols.map((c) => {
+        if (c.key === labelKey) return <td key={c.key}>TOTALES</td>;
+        if (descriptive.has(c.key)) return <td key={c.key}></td>;
+        return <td key={c.key} style={c.cellStyle}>{c.render ? c.render(totals) : totals[c.key]}</td>;
+      })}
+      {trailingEmpty && <td></td>}
+    </tr>
+  );
+}
+
+function StatRow({ cols, p, children }) {
+  return (
+    <tr>
+      {cols.map((c) => (
+        <td key={c.key} className={c.cellClass} style={c.cellStyle}>
+          {c.render ? c.render(p) : p[c.key]}
+        </td>
+      ))}
+      {children}
+    </tr>
+  );
+}
+
+function BattingTable({ rows, totals, isAdmin, onEdit, onChange }) {
+  const { sorted, sort, onSort } = useColumnSort(rows);
   async function delPlayer(p) {
     if (!confirm(`¿Eliminar a ${p.name}?`)) return;
     await api.del(`/players/${p.id}`);
@@ -136,59 +238,49 @@ function BattingTable({ rows, isAdmin, onEdit, onChange }) {
     <div className="panel table-wrap">
       <table>
         <thead>
-          <tr>
-            <th>#</th><th>Jugador</th><th>Carné</th><th>Pos</th><th>JJ</th><th>VB</th><th>C</th><th>H</th>
-            <th>2B</th><th>3B</th><th>HR</th><th>CI</th><th>BB</th><th>K</th><th>SB</th>
-            <th>AVG</th><th>OBP</th><th>SLG</th><th>OPS</th>{isAdmin && <th></th>}
-          </tr>
+          <SortHeaders cols={BAT_COLS} sort={sort} onSort={onSort} trailingEmpty={isAdmin} />
         </thead>
         <tbody>
-          {rows.map((p) => (
-            <tr key={p.id}>
-              <td>{p.number ?? ''}</td>
-              <td>{p.name}</td>
-              <td className="muted" style={{ fontSize: 12 }}>{p.carnet || '—'}</td>
-              <td>{p.position || ''}</td>
-              <td>{p.gp}</td><td>{p.ab}</td><td>{p.r}</td><td>{p.h}</td>
-              <td>{p.b2}</td><td>{p.b3}</td><td>{p.hr}</td><td>{p.rbi}</td>
-              <td>{p.bb}</td><td>{p.so}</td><td>{p.sb}</td>
-              <td>{p.avg.toFixed(3)}</td><td>{p.obp.toFixed(3)}</td>
-              <td>{p.slg.toFixed(3)}</td><td style={{ fontWeight: 700 }}>{p.ops.toFixed(3)}</td>
+          {sorted.map((p) => (
+            <StatRow key={p.id} cols={BAT_COLS} p={p}>
               {isAdmin && (
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn secondary small" onClick={() => onEdit(p)}>✎</button>{' '}
                   <button className="btn danger small" onClick={() => delPlayer(p)}>×</button>
                 </td>
               )}
-            </tr>
+            </StatRow>
           ))}
         </tbody>
+        {totals && (
+          <tfoot>
+            <TotalsRow cols={BAT_COLS} totals={totals} trailingEmpty={isAdmin} />
+          </tfoot>
+        )}
       </table>
     </div>
   );
 }
 
-function PitchingTable({ rows }) {
+function PitchingTable({ rows, totals }) {
+  const { sorted, sort, onSort } = useColumnSort(rows);
   if (!rows.length) return <div className="empty">Ningún lanzador con entradas registradas.</div>;
   return (
     <div className="panel table-wrap">
       <table>
         <thead>
-          <tr>
-            <th>#</th><th>Lanzador</th><th>JJ</th><th>IP</th><th>H</th><th>C</th><th>CL</th>
-            <th>BB</th><th>K</th><th>HR</th><th>G</th><th>P</th><th>SV</th><th>ERA</th><th>WHIP</th>
-          </tr>
+          <SortHeaders cols={PIT_COLS} sort={sort} onSort={onSort} />
         </thead>
         <tbody>
-          {rows.map((p) => (
-            <tr key={p.id}>
-              <td>{p.number ?? ''}</td><td>{p.name}</td><td>{p.gp}</td><td>{p.ip}</td>
-              <td>{p.h}</td><td>{p.r}</td><td>{p.er}</td><td>{p.bb}</td><td>{p.so}</td>
-              <td>{p.hr}</td><td>{p.w}</td><td>{p.l}</td><td>{p.sv}</td>
-              <td style={{ fontWeight: 700 }}>{p.era.toFixed(2)}</td><td>{p.whip.toFixed(2)}</td>
-            </tr>
+          {sorted.map((p) => (
+            <StatRow key={p.id} cols={PIT_COLS} p={p} />
           ))}
         </tbody>
+        {totals && (
+          <tfoot>
+            <TotalsRow cols={PIT_COLS} totals={totals} />
+          </tfoot>
+        )}
       </table>
     </div>
   );

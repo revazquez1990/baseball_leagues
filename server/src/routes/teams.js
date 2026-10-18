@@ -1,9 +1,16 @@
 import { Router } from 'express';
 import { pool } from '../db.js';
 import { requireAdmin } from '../middleware/auth.js';
-import { teamBatting, teamPitching } from '../utils/stats.js';
+import { teamBatting, teamPitching, battingRates, pitchingRates } from '../utils/stats.js';
 
 const router = Router();
+
+// Suma los campos indicados sobre un arreglo de jugadores.
+function sumFields(rows, fields) {
+  const out = {};
+  for (const f of fields) out[f] = rows.reduce((acc, r) => acc + Number(r[f] || 0), 0);
+  return out;
+}
 
 // Equipos de una liga (pública).
 router.get('/leagues/:leagueId/teams', async (req, res) => {
@@ -67,6 +74,13 @@ router.get('/teams/:id', async (req, res) => {
   const batting = await teamBatting(id);
   const pitching = await teamPitching(id);
 
+  // Totales del equipo: se suman los acumulados y las tasas (AVG/OBP/SLG/OPS,
+  // ERA/WHIP) se recalculan desde esos totales, no promediando promedios.
+  const batTot = sumFields(batting, ['ab', 'r', 'h', 'b2', 'b3', 'hr', 'rbi', 'bb', 'so', 'hbp', 'sf', 'sb']);
+  const battingTotal = { ...batTot, ...battingRates(batTot) };
+  const pitTot = sumFields(pitching, ['outs', 'h', 'r', 'er', 'bb', 'so', 'hr', 'bf', 'w', 'l', 'sv']);
+  const pitchingTotal = { ...pitTot, ...pitchingRates(pitTot) };
+
   // Récord del equipo a partir de juegos finalizados.
   const [[rec]] = await pool.query(
     `SELECT
@@ -84,6 +98,8 @@ router.get('/teams/:id', async (req, res) => {
     record: { w: Number(rec.w || 0), l: Number(rec.l || 0) },
     roster: batting, // batting incluye a todos los jugadores (aunque no pitcheen)
     pitching,
+    battingTotal,
+    pitchingTotal,
   });
 });
 
