@@ -19,10 +19,19 @@ async function main() {
     multipleStatements: true,
   });
 
-  await root.query(
-    `CREATE DATABASE IF NOT EXISTS \`${config.db.database}\`
-       CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-  );
+  // En local (root WAMP) se crea la BD si falta. En hosting compartido el
+  // usuario MySQL no puede crear bases de datos: se crea desde el panel
+  // (cPanel) y aquí simplemente la usamos.
+  try {
+    await root.query(
+      `CREATE DATABASE IF NOT EXISTS \`${config.db.database}\`
+         CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+  } catch (e) {
+    console.warn(
+      `No se pudo crear la BD (${e.message}). Se asume que ya existe (hosting compartido).`
+    );
+  }
   await root.query(`USE \`${config.db.database}\``);
   console.log(`Base de datos "${config.db.database}" lista.`);
 

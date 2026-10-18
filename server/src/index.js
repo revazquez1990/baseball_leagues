@@ -1,5 +1,8 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { attachUser } from './middleware/auth.js';
 
@@ -25,6 +28,25 @@ app.use('/api', teamRoutes);
 app.use('/api', playerRoutes);
 app.use('/api', gameRoutes);
 app.use('/api', playoffRoutes);
+
+// --- Frontend en producción -------------------------------------------------
+// Sirve el build de Vite (client/dist) desde el mismo proceso/origen que el
+// API. Así en el hosting basta UNA sola app Node. Solo se activa si el build
+// existe, de modo que en desarrollo (sin dist) no interfiere con Vite.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDist = process.env.CLIENT_DIST
+  ? path.resolve(process.env.CLIENT_DIST)
+  : path.resolve(__dirname, '../../client/dist');
+
+if (fs.existsSync(clientDist)) {
+  app.use(express.static(clientDist));
+  // Fallback SPA: cualquier ruta que no sea /api/* devuelve index.html para
+  // que React Router maneje el enrutado del lado del cliente.
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+  console.log(`Sirviendo frontend desde ${clientDist}`);
+}
 
 // Manejo centralizado de errores.
 app.use((err, _req, res, _next) => {
