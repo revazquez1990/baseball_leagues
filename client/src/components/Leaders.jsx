@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 
 const BAT_CATS = [
-  { key: 'avg', label: 'Average (AVG)', fmt: (v) => v.avg.toFixed(3) },
+  { key: 'avg', label: 'Average (AVG)', fmt: (v) => v.avg.toFixed(3), detail: (v) => `${v.h} en ${v.ab}` },
   { key: 'hr', label: 'Jonrones (HR)', fmt: (v) => v.hr },
   { key: 'rbi', label: 'Impulsadas (RBI)', fmt: (v) => v.rbi },
 ];
 const PIT_CATS = [
   { key: 'w', label: 'Victorias (W)', fmt: (v) => v.w },
-  { key: 'era', label: 'Efectividad (ERA)', fmt: (v) => v.era.toFixed(2) },
+  { key: 'era', label: 'Efectividad (ERA)', fmt: (v) => v.era.toFixed(2), detail: (v) => `${v.er} en ${v.ip}` },
   { key: 'so', label: 'Ponches (K)', fmt: (v) => v.so },
 ];
 
@@ -25,15 +25,15 @@ export default function Leaders({ leagueId }) {
   return (
     <div>
       <h3>Bateo</h3>
-      <div className="card-grid">
+      <div className="card-grid leaders-grid">
         {BAT_CATS.map((c) => (
-          <LeaderBox key={c.key} title={c.label} rows={data.batting[c.key]} fmt={c.fmt} />
+          <LeaderBox key={c.key} title={c.label} rows={data.batting[c.key]} fmt={c.fmt} detail={c.detail} />
         ))}
       </div>
       <h3 style={{ marginTop: 24 }}>Pitcheo</h3>
-      <div className="card-grid">
+      <div className="card-grid leaders-grid">
         {PIT_CATS.map((c) => (
-          <LeaderBox key={c.key} title={c.label} rows={data.pitching[c.key]} fmt={c.fmt} />
+          <LeaderBox key={c.key} title={c.label} rows={data.pitching[c.key]} fmt={c.fmt} detail={c.detail} />
         ))}
       </div>
       <p className="muted" style={{ fontSize: 13, marginTop: 16 }}>
@@ -44,7 +44,7 @@ export default function Leaders({ leagueId }) {
   );
 }
 
-function LeaderBox({ title, rows, fmt }) {
+function LeaderBox({ title, rows, fmt, detail }) {
   return (
     <div className="card leader-box">
       <h4>{title}</h4>
@@ -57,7 +57,10 @@ function LeaderBox({ title, rows, fmt }) {
               <span className="rank">{i + 1}</span>
               <span className="who">
                 <Link to={`/teams/${r.teamId}`} className="pname">{r.name}</Link>
-                <span className="pteam">{r.teamName}</span>
+                <span className="pteam">
+                  <span className="tname">{r.teamName}</span>
+                  {detail && <span className="pdetail">({detail(r)})</span>}
+                </span>
               </span>
               <span className="val">{fmt(r)}</span>
             </li>

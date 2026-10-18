@@ -60,6 +60,9 @@ a:hover { color: #fff; }
   border-radius: var(--radius); padding: 18px; margin-bottom: 18px;
 }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+/* Líderes: siempre 3 columnas iguales que llenan el ancho; una sola columna en móvil. */
+.leaders-grid { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 640px) { .leaders-grid { grid-template-columns: 1fr; } }
 .card {
   background: var(--panel); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 16px; transition: transform .1s, border-color .1s;
@@ -142,5 +145,7 @@ input[type=number] { text-align: right; }
 .leader-list .rank { width: 18px; flex-shrink: 0; text-align: right; color: var(--muted); font-size: 12px; }
 .leader-list .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .leader-list .pname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.leader-list .pteam { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leader-list .pteam { color: var(--muted); font-size: 11px; display: flex; align-items: baseline; gap: 6px; }
+.leader-list .pteam .tname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.leader-list .pdetail { margin-left: auto; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .leader-list .val { flex-shrink: 0; margin-left: auto; font-weight: 800; font-variant-numeric: tabular-nums; }
