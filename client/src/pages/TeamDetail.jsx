@@ -13,6 +13,14 @@ export default function TeamDetail() {
   const [editingPlayer, setEditingPlayer] = useState(null); // objeto jugador o null
   const [showTeamEdit, setShowTeamEdit] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    try { await exportTeamPdf(data); }
+    catch (e) { alert(`No se pudo generar el PDF: ${e.message}`); }
+    finally { setExporting(false); }
+  }
 
   const load = useCallback(() => {
     api.get(`/teams/${id}`).then(setData);
@@ -37,11 +45,16 @@ export default function TeamDetail() {
             </p>
           </div>
         </div>
-        {isAdmin && (
-          <button className="btn secondary small" onClick={() => setShowTeamEdit((s) => !s)}>
-            {showTeamEdit ? 'Cerrar' : 'Editar equipo'}
+        <div className="row">
+          <button className="btn secondary small" onClick={handleExport} disabled={exporting}>
+            {exporting ? 'Generando…' : '⬇ Exportar PDF'}
           </button>
-        )}
+          {isAdmin && (
+            <button className="btn secondary small" onClick={() => setShowTeamEdit((s) => !s)}>
+              {showTeamEdit ? 'Cerrar' : 'Editar equipo'}
+            </button>
+          )}
+        </div>
       </div>
 
       {isAdmin && showTeamEdit && (
@@ -155,6 +168,10 @@ const PIT_COLS = [
   { key: 'whip', label: 'WHIP', render: (p) => p.whip.toFixed(2) },
 ];
 
+// Columnas que describen al jugador (no son estadísticas acumulables): en la
+// fila de totales y en el PDF van vacías.
+const DESCRIPTIVE_KEYS = new Set(['number', 'carnet', 'position', 'gp']);
+
 function sortRows(rows, { key, dir }) {
   if (!key) return rows;
   const arr = [...rows];
@@ -200,12 +217,11 @@ function SortHeaders({ cols, sort, onSort, trailingEmpty = false }) {
 // Fila de totales del equipo (en el <tfoot>). Las columnas descriptivas
 // (número, carné, posición, JJ) van vacías; en la de nombre se pone "TOTALES".
 function TotalsRow({ cols, totals, labelKey = 'name', trailingEmpty = false }) {
-  const descriptive = new Set(['number', 'carnet', 'position', 'gp']);
   return (
     <tr style={{ fontWeight: 700, borderTop: '2px solid var(--accent-2)' }}>
       {cols.map((c) => {
         if (c.key === labelKey) return <td key={c.key}>TOTALES</td>;
-        if (descriptive.has(c.key)) return <td key={c.key}></td>;
+        if (DESCRIPTIVE_KEYS.has(c.key)) return <td key={c.key}></td>;
         return <td key={c.key} style={c.cellStyle}>{c.render ? c.render(totals) : totals[c.key]}</td>;
       })}
       {trailingEmpty && <td></td>}
@@ -284,6 +300,84 @@ function PitchingTable({ rows, totals }) {
       </table>
     </div>
   );
+}
+
+// Texto de una celda a partir de la definición de columna (reutiliza el mismo
+// `render` que la tabla en pantalla, así el PDF coincide con lo visible).
+function cellText(col, obj) {
+  const v = col.render ? col.render(obj) : obj[col.key];
+  return v == null ? '' : String(v);
+}
+
+// Arma head/body/foot para jspdf-autotable desde una definición de columnas.
+function colsToTable(cols, rows, totals) {
+  const head = [cols.map((c) => c.label)];
+  const body = rows.map((p) => cols.map((c) => cellText(c, p)));
+  const foot = totals
+    ? [cols.map((c) => (c.key === 'name' ? 'TOTALES' : DESCRIPTIVE_KEYS.has(c.key) ? '' : cellText(c, totals)))]
+    : undefined;
+  return { head, body, foot };
+}
+
+// Fecha local en formato AAAA-MM-DD (para el nombre del archivo; ordena bien).
+function isoToday() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Exporta las estadísticas del equipo a un PDF. Nombre: "Equipo - AAAA-MM-DD.pdf".
+async function exportTeamPdf({ team, record, roster, pitching, battingTotal, pitchingTotal }) {
+  const { jsPDF } = await import('jspdf');
+  const autoTable = (await import('jspdf-autotable')).default;
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const margin = 40;
+  const dateReadable = new Date().toLocaleDateString('es');
+
+  // Encabezado.
+  doc.setFontSize(15);
+  doc.text(team.name, margin, 44);
+  doc.setFontSize(10);
+  doc.setTextColor(110);
+  doc.text(
+    `${team.league_name} · ${team.group_name || 'Sin grupo'} · Récord ${record.w}-${record.l}`,
+    margin, 60
+  );
+  doc.text(`Estadísticas al ${dateReadable}`, margin, 74);
+  doc.setTextColor(0);
+
+  const tableOpts = {
+    styles: { fontSize: 7, cellPadding: 2, overflow: 'linebreak' },
+    headStyles: { fillColor: [30, 90, 168], textColor: 255, fontSize: 7 },
+    footStyles: { fillColor: [232, 236, 242], textColor: 0, fontStyle: 'bold' },
+    theme: 'grid',
+    margin: { left: margin, right: margin },
+  };
+
+  // Bateo.
+  doc.setFontSize(11);
+  doc.text('Bateo', margin, 96);
+  const bat = colsToTable(BAT_COLS, roster, battingTotal);
+  autoTable(doc, { startY: 102, head: bat.head, body: bat.body, foot: bat.foot, ...tableOpts });
+
+  // Pitcheo.
+  let y = doc.lastAutoTable.finalY + 22;
+  doc.setFontSize(11);
+  doc.text('Pitcheo', margin, y);
+  if (pitching.length) {
+    const pit = colsToTable(PIT_COLS, pitching, pitchingTotal);
+    autoTable(doc, { startY: y + 6, head: pit.head, body: pit.body, foot: pit.foot, ...tableOpts });
+  } else {
+    doc.setFontSize(9);
+    doc.setTextColor(110);
+    doc.text('Ningún lanzador con entradas registradas.', margin, y + 18);
+    doc.setTextColor(0);
+  }
+
+  // Nombre de archivo: quita caracteres no válidos en nombres de archivo.
+  const safeName = team.name.replace(/[\\/:*?"<>|]/g, '').trim() || 'Equipo';
+  doc.save(`${safeName} - ${isoToday()}.pdf`);
 }
 
 // Interpreta una lista pegada. Por cada línea detecta el CI (11 dígitos); si
