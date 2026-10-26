@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
 import TeamLogo from './TeamLogo.jsx';
+import SimulationModal from './SimulationModal.jsx';
 
 const CLASIF = {
   directo: { label: '✓ Directo', bg: 'rgba(63,185,80,0.18)', fg: 'var(--green)' },
@@ -27,6 +28,7 @@ function ClasifTag({ value }) {
 
 export default function Standings({ leagueId }) {
   const [data, setData] = useState(null);
+  const [showSim, setShowSim] = useState(false);
 
   useEffect(() => {
     api.get(`/leagues/${leagueId}/standings`).then(setData);
@@ -37,6 +39,11 @@ export default function Standings({ leagueId }) {
 
   return (
     <div>
+      <div className="spread" style={{ marginBottom: 10 }}>
+        <span className="muted" style={{ fontSize: 13 }}>Prueba escenarios con los juegos que faltan.</span>
+        <button className="btn" onClick={() => setShowSim(true)}>Hacer simulación</button>
+      </div>
+      {showSim && <SimulationModal leagueId={leagueId} onClose={() => setShowSim(false)} />}
       {data.groups.map((g) => (
         <div className="panel" key={g.groupId}>
           <h3 style={{ marginTop: 0 }}>{g.groupName}</h3>
