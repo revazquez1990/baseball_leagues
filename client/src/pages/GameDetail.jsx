@@ -98,16 +98,32 @@ function parseBoxscorePaste(text) {
     if (/lanzador/i.test(line)) { mode = 'pit'; current = null; continue; }
 
     if (mode === 'bat') {
-      const m = line.match(/^-?\s*(.+?)\s*:\s*(\d+)\s*-\s*(\d+)(.*)$/);
+      // Nombre : [VB-H] [, extras]. El VB-H es opcional: un bateador puede no
+      // tener vez al bate oficial (p. ej. solo BB/CI) y aun así registrarse.
+      const m = line.match(/^-?\s*(.+?)\s*:\s*(.*)$/);
       if (!m) continue;
-      const stats = { ab: Number(m[2]), h: Number(m[3]) };
-      for (const ex of m[4].split(',').map((s) => s.trim()).filter(Boolean)) {
+      let rest = m[2].trim();
+      const stats = { ab: 0, h: 0 };
+      // ¿Comienza con VB-H? (dos números separados por guion).
+      const vbh = rest.match(/^(\d+)\s*-\s*(\d+)\s*(.*)$/);
+      let hadVbh = false;
+      if (vbh) {
+        stats.ab = Number(vbh[1]);
+        stats.h = Number(vbh[2]);
+        rest = vbh[3];
+        hadVbh = true;
+      }
+      for (const ex of rest.split(',').map((s) => s.trim()).filter(Boolean)) {
         const em = ex.match(/^(\d+)\s*([A-Za-z0-9]+)$/);
         if (!em) continue;
         const field = CODE_MAP[em[2].toUpperCase()];
         if (field) stats[field] = (stats[field] || 0) + Number(em[1]);
       }
-      batting.push({ name: m[1], stats });
+      // Con VB-H se registra siempre (incluso 0-0). Sin VB-H, solo si hay algún
+      // dato que anotar (BB, CI, etc.); así una línea vacía no crea registro.
+      if (hadVbh || Object.values(stats).some((v) => Number(v) > 0)) {
+        batting.push({ name: m[1], stats });
+      }
     } else {
       if (/^-/.test(line) && !line.includes(':')) {
         let name = line.replace(/^-\s*/, '');
@@ -343,7 +359,8 @@ function BoxscoreEditor({ game, existing, onSaved }) {
       <div className="panel" style={{ borderColor: 'var(--accent-2)' }}>
         <h3 style={{ marginTop: 0 }}>Pegar resultados (rápido)</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: 13 }}>
-          Bateo: <code>-Nombre:VB-H,1CI,1BB</code> por línea. Pitcheo: tras una
+          Bateo: <code>-Nombre:VB-H,1CI,1BB</code> por línea. El VB-H es opcional
+          si el bateador no tuvo veces al bate: <code>-Nombre:3BB,1CI</code>. Pitcheo: tras una
           línea con «lanzadores», <code>-Nombre(ganador)</code> y debajo
           <code> Entradas:2.1</code>, <code>Carreras limpias:5</code>,
           <code> Ponches:0</code>. Empareja por nombre con la nómina de ambos equipos.
