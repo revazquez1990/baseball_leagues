@@ -4,6 +4,7 @@ import { requireAdmin } from '../middleware/auth.js';
 import { distributeIntoGroups } from '../utils/random.js';
 import { generateRoundRobin, weekendDates, spacedDates } from '../utils/schedule.js';
 import { computeStandings } from '../utils/standings.js';
+import { computeMissingGames } from '../utils/missing-games.js';
 import { leagueLeaders } from '../utils/stats.js';
 
 const router = Router();
@@ -228,6 +229,13 @@ router.post('/:id/schedule', requireAdmin, async (req, res) => {
 // Tabla de posiciones (pública).
 router.get('/:id/standings', async (req, res) => {
   const data = await computeStandings(req.params.id);
+  if (!data.league) return res.status(404).json({ error: 'Liga no encontrada' });
+  res.json(data);
+});
+
+// Juegos que faltan por programar, deducidos del todos-contra-todos (pública).
+router.get('/:id/missing-games', async (req, res) => {
+  const data = await computeMissingGames(req.params.id);
   if (!data.league) return res.status(404).json({ error: 'Liga no encontrada' });
   res.json(data);
 });

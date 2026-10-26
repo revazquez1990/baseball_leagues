@@ -9,11 +9,16 @@ export default function Schedule({ leagueId, teams = [], isAdmin }) {
   const [filter, setFilter] = useState('all');
   const [showAdd, setShowAdd] = useState(false);
 
-  const load = useCallback(() => {
+  // Refresco silencioso: actualiza los datos sin pasar por "Cargando…", para no
+  // re-renderizar todo el calendario ni cerrar el acordeón al agregar un juego.
+  const refresh = useCallback(
+    () => api.get(`/leagues/${leagueId}/games`).then(setGames),
+    [leagueId]
+  );
+  useEffect(() => {
     setLoading(true);
-    api.get(`/leagues/${leagueId}/games`).then(setGames).finally(() => setLoading(false));
-  }, [leagueId]);
-  useEffect(load, [load]);
+    refresh().finally(() => setLoading(false));
+  }, [refresh]);
 
   if (loading) return <div className="empty">Cargando…</div>;
 
@@ -26,7 +31,8 @@ export default function Schedule({ leagueId, teams = [], isAdmin }) {
   const byRound = {};
   for (const g of shown) (byRound[g.round] ||= []).push(g);
   const rounds = Object.keys(byRound).map(Number).sort((a, b) => a - b);
-  const nextRound = regular.length ? Math.max(...regular.map((g) => g.round)) + 1 : 1;
+  const lastRound = regular.length ? Math.max(...regular.map((g) => g.round)) : 1;
+  const nextRound = regular.length ? lastRound + 1 : 1;
 
   return (
     <div>
@@ -45,7 +51,7 @@ export default function Schedule({ leagueId, teams = [], isAdmin }) {
 
       {isAdmin && showAdd && (
         <AddGameForm leagueId={leagueId} teams={teams} defaultRound={nextRound}
-                     onAdded={() => { setShowAdd(false); load(); }} />
+                     onAdded={() => { setShowAdd(false); refresh(); }} />
       )}
 
       {regular.length === 0 ? (
@@ -57,11 +63,106 @@ export default function Schedule({ leagueId, teams = [], isAdmin }) {
           <div className="panel" key={r}>
             <h3 style={{ marginTop: 0 }}>Jornada {r}</h3>
             {byRound[r].map((g) => (
-              <GameRow key={g.id} game={g} isAdmin={isAdmin} onChange={load} />
+              <GameRow key={g.id} game={g} isAdmin={isAdmin} onChange={refresh} />
             ))}
           </div>
         ))
       )}
+
+      <MissingGames leagueId={leagueId} isAdmin={isAdmin} targetRound={lastRound} onChanged={refresh} />
+    </div>
+  );
+}
+
+// Acordeón con los juegos que faltan por programar (deducidos del
+// todos-contra-todos). Para cada uno el admin elige local y fecha, y lo
+// agrega al calendario de una.
+function MissingGames({ leagueId, isAdmin, targetRound, onChanged }) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState(null);
+
+  const load = useCallback(() => {
+    api.get(`/leagues/${leagueId}/missing-games`).then((d) => setList(d.missing || []));
+  }, [leagueId]);
+  useEffect(load, [load]);
+
+  if (!list) return null;
+
+  return (
+    <div className="panel">
+      <div className="spread" style={{ cursor: 'pointer' }} onClick={() => setOpen((o) => !o)}>
+        <h3 style={{ margin: 0 }}>{open ? '▾' : '▸'} Juegos por jugar ({list.length})</h3>
+        <span className="muted" style={{ fontSize: 13 }}>
+          {list.length ? 'Faltan por programar' : 'Todos programados'}
+        </span>
+      </div>
+
+      {open && (
+        list.length === 0 ? (
+          <div className="empty" style={{ marginTop: 10 }}>No falta ningún juego por programar.</div>
+        ) : (
+          <div style={{ marginTop: 6 }}>
+            {list.map((m, i) => (
+              <MissingRow
+                key={`${m.teamA.id}-${m.teamB.id}-${i}`}
+                m={m} leagueId={leagueId} isAdmin={isAdmin} targetRound={targetRound}
+                onAdded={() => { load(); onChanged && onChanged(); }}
+              />
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+function MissingRow({ m, leagueId, isAdmin, targetRound, onAdded }) {
+  const [home, setHome] = useState(String(m.teamA.id));
+  const [date, setDate] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const homeId = Number(home);
+  const awayId = homeId === m.teamA.id ? m.teamB.id : m.teamA.id;
+
+  async function add() {
+    setBusy(true); setError('');
+    try {
+      await api.post(`/leagues/${leagueId}/games`, {
+        home_team_id: homeId, away_team_id: awayId,
+        round: Number(targetRound) || 1, game_date: date || null, group_id: m.groupId ?? null,
+      });
+      onAdded();
+    } catch (err) { setError(err.message); setBusy(false); }
+  }
+
+  return (
+    <div style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+      <div className="spread" style={{ gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          {m.groupName && <span className="pill" style={{ marginRight: 8 }}>{m.groupName}</span>}
+          <TeamLogo logoUrl={m.teamA.logoUrl} color={m.teamA.color} name={m.teamA.name} size={18} />{m.teamA.name}
+          <span className="muted"> vs </span>
+          <TeamLogo logoUrl={m.teamB.logoUrl} color={m.teamB.color} name={m.teamB.name} size={18} />{m.teamB.name}
+        </div>
+        {isAdmin && (
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ maxWidth: 160 }}>
+              <label style={{ fontSize: 11 }}>Local</label>
+              <select value={home} onChange={(e) => setHome(e.target.value)}>
+                <option value={m.teamA.id}>{m.teamA.name}</option>
+                <option value={m.teamB.id}>{m.teamB.name}</option>
+              </select>
+            </div>
+            <div style={{ maxWidth: 160 }}>
+              <label style={{ fontSize: 11 }}>Fecha</label>
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <button className="btn small" onClick={add} disabled={busy}>Agregar al calendario</button>
+          </div>
+        )}
+      </div>
+      {error && <div className="error">{error}</div>}
     </div>
   );
 }
