@@ -14,6 +14,13 @@ export const pool = mysql.createPool({
   decimalNumbers: true,
 });
 
+// En desarrollo (WAMP) MySQL corre con sql_mode vacío; MySQL 8 en producción
+// trae ONLY_FULL_GROUP_BY y modo estricto por defecto, lo que rompe las
+// consultas con GROUP BY. Igualamos cada conexión del pool al modo de dev.
+pool.pool.on('connection', (conn) => {
+  conn.query("SET SESSION sql_mode = ''", () => {});
+});
+
 // Helper: ejecuta dentro de una transacción.
 export async function withTransaction(fn) {
   const conn = await pool.getConnection();
