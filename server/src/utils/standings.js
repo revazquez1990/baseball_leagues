@@ -239,6 +239,11 @@ export function computeClinch(rows, pending, h2h) {
   }
   const R = rem.length;
 
+  // Sin juegos pendientes: la temporada del grupo terminó. El orden ya está
+  // totalmente decidido (incluida la diferencia de carreras), así que se marca
+  // por la posición final con el desempate completo.
+  if (R === 0) return finalRankClinch(rows, h2h);
+
   if (R > MAX_ENUM_GAMES) return conservativeClinch(rows);
 
   // Matriz densa de victorias directas ya jugadas: hW[i][j] = veces que i a j.
@@ -342,6 +347,57 @@ export function computeClinch(rows, pending, h2h) {
     else if (best[i] > PLAYOFF_SPOTS) out.set(rows[i].teamId, 'eliminado');
   }
   return out;
+}
+
+/**
+ * Clasificación cuando el grupo ya no tiene juegos pendientes: ordena con el
+ * desempate completo (igual que la tabla) y marca por posición final.
+ */
+function finalRankClinch(rows, h2h) {
+  const out = new Map();
+  const rank = fullRank(rows, h2h);
+  for (const r of rows) {
+    const rk = rank.get(r.teamId);
+    if (rk <= DIRECT_SPOTS) out.set(r.teamId, 'directo');
+    else if (rk <= PLAYOFF_SPOTS) out.set(r.teamId, 'comodin');
+    else out.set(r.teamId, 'eliminado');
+  }
+  return out;
+}
+
+/**
+ * Ordena los equipos con el sistema de desempate completo (el mismo de la
+ * tabla) y devuelve un Map teamId -> posición (1 = primero). Robusto a filas
+ * sin rs/ra/name (usa 0 / cadena vacía).
+ */
+function fullRank(rows, h2h) {
+  const pct = (r) => (r.g > 0 ? r.w / r.g : 0);
+  const agg = (teamId, others) => {
+    let w = 0, l = 0, rs = 0, ra = 0;
+    for (const o of others) {
+      if (o === teamId) continue;
+      const rec = h2h.get(`${teamId}:${o}`);
+      if (rec) { w += rec.w; l += rec.l; rs += rec.rs; ra += rec.ra; }
+    }
+    const t = w + l;
+    return { pct: t ? w / t : 0, diff: rs - ra, rs };
+  };
+  const sorted = [...rows].sort((a, b) => {
+    const pa = pct(a), pb = pct(b);
+    if (pb !== pa) return pb - pa;
+    const tied = rows.filter((r) => pct(r) === pa).map((r) => r.teamId);
+    const A = agg(a.teamId, tied), B = agg(b.teamId, tied);
+    if (B.pct !== A.pct) return B.pct - A.pct;
+    if (B.diff !== A.diff) return B.diff - A.diff;
+    if (B.rs !== A.rs) return B.rs - A.rs;
+    const da = (a.rs || 0) - (a.ra || 0), db = (b.rs || 0) - (b.ra || 0);
+    if (db !== da) return db - da;
+    if ((b.rs || 0) !== (a.rs || 0)) return (b.rs || 0) - (a.rs || 0);
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+  const m = new Map();
+  sorted.forEach((r, i) => m.set(r.teamId, i + 1));
+  return m;
 }
 
 /**
