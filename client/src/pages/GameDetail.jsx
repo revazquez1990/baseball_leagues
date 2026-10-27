@@ -16,6 +16,19 @@ function outsToIp(outs) {
   return `${Math.floor(outs / 3)}.${outs % 3}`;
 }
 
+// Formatea fecha (y horario opcional) para mostrar.
+function fmtDateTime(d, t) {
+  let out = '';
+  if (d) {
+    const date = new Date(`${String(d).slice(0, 10)}T12:00:00`);
+    out = Number.isNaN(date.getTime())
+      ? String(d).slice(0, 10)
+      : date.toLocaleDateString('es', { weekday: 'short', day: '2-digit', month: 'short' });
+  }
+  if (t) out += `${out ? ' · ' : ''}${String(t).slice(0, 5)}`;
+  return out;
+}
+
 // Columnas de bateo visibles en el boxscore. Las demás (C, 2B, 3B, K, HBP,
 // SF, SB) no se anotan por ahora y quedan ocultas (se guardan en 0).
 const BAT_COLS = [
@@ -180,7 +193,10 @@ export default function GameDetail() {
           ? <span className="score">{g.away_score} - {g.home_score}</span>
           : <span className="pill sched">Pendiente</span>}
       </div>
-      <p className="subtitle">Jornada {g.round}{g.game_date ? ` · ${g.game_date}` : ''}</p>
+      <p className="subtitle">
+        {g.stage === 'playoff' ? 'Playoff' : `Jornada ${g.round}`}
+        {(g.game_date || g.game_time) ? ` · ${fmtDateTime(g.game_date, g.game_time)}` : ''}
+      </p>
 
       {isAdmin && (
         <button className="btn" onClick={() => setEditing((e) => !e)} style={{ marginBottom: 16 }}>

@@ -56,6 +56,17 @@ async function main() {
     console.log('Migración: columna games.series_id añadida.');
   }
 
+  // Migración idempotente: columna games.game_time (horario del juego).
+  const [timeCols] = await root.query(
+    `SELECT COUNT(*) AS n FROM information_schema.columns
+      WHERE table_schema = ? AND table_name = 'games' AND column_name = 'game_time'`,
+    [config.db.database]
+  );
+  if (timeCols[0].n === 0) {
+    await root.query('ALTER TABLE games ADD COLUMN game_time TIME NULL AFTER game_date');
+    console.log('Migración: columna games.game_time añadida.');
+  }
+
   // Migración idempotente: columna teams.logo_url (logos de equipos).
   const [logoCols] = await root.query(
     `SELECT COUNT(*) AS n FROM information_schema.columns

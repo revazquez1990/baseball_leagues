@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS games (
   series_id    INT NULL,                     -- distinto de NULL si es de playoffs
   round        INT NOT NULL DEFAULT 1,
   game_date    DATE NULL,
+  game_time    TIME NULL,                     -- horario del juego (opcional)
   home_team_id INT NOT NULL,
   away_team_id INT NOT NULL,
   home_score   INT NULL,

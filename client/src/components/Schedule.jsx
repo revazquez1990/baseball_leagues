@@ -172,6 +172,7 @@ function AddGameForm({ leagueId, teams, defaultRound, onAdded }) {
   const [home, setHome] = useState('');
   const [round, setRound] = useState(defaultRound);
   const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -185,7 +186,7 @@ function AddGameForm({ leagueId, teams, defaultRound, onAdded }) {
     try {
       await api.post(`/leagues/${leagueId}/games`, {
         home_team_id: Number(home), away_team_id: Number(away),
-        round: Number(round) || 1, game_date: date || null, group_id: groupId,
+        round: Number(round) || 1, game_date: date || null, game_time: time || null, group_id: groupId,
       });
       onAdded();
     } catch (err) { setError(err.message); }
@@ -212,6 +213,8 @@ function AddGameForm({ leagueId, teams, defaultRound, onAdded }) {
           <input type="number" min="1" value={round} onChange={(e) => setRound(e.target.value)} /></div>
         <div style={{ maxWidth: 170 }}><label>Fecha (Vie/Sáb/Dom)</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div style={{ maxWidth: 120 }}><label>Horario</label>
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
       </div>
       {error && <div className="error">{error}</div>}
       <button className="btn" onClick={submit} disabled={busy}>Agregar juego</button>
@@ -237,7 +240,12 @@ function GameRow({ game, isAdmin, onChange }) {
           <span className={homeWin ? 'win' : ''}>
             <TeamLogo logoUrl={game.home_logo} color={game.home_color} name={game.home_name} size={18} />{game.home_name}
           </span>
-          {game.game_date && <span className="muted" style={{ marginLeft: 10, fontSize: 13 }}>{fmtDate(game.game_date)}</span>}
+          {(game.game_date || game.game_time) && (
+            <span className="muted" style={{ marginLeft: 10, fontSize: 13 }}>
+              {game.game_date ? fmtDate(game.game_date) : ''}
+              {game.game_time ? `${game.game_date ? ' · ' : ''}${String(game.game_time).slice(0, 5)}` : ''}
+            </span>
+          )}
         </div>
         <div className="row">
           {isFinal
@@ -261,6 +269,7 @@ function GameRow({ game, isAdmin, onChange }) {
 
 function GameEditor({ game, onDone }) {
   const [date, setDate] = useState(game.game_date ? game.game_date.slice(0, 10) : '');
+  const [time, setTime] = useState(game.game_time ? String(game.game_time).slice(0, 5) : '');
   const [round, setRound] = useState(game.round);
   const [awayScore, setAwayScore] = useState(game.away_score ?? '');
   const [homeScore, setHomeScore] = useState(game.home_score ?? '');
@@ -274,7 +283,7 @@ function GameEditor({ game, onDone }) {
   }
 
   const saveMeta = () => run(async () => {
-    await api.put(`/games/${game.id}`, { game_date: date || null, round: Number(round) || 1 });
+    await api.put(`/games/${game.id}`, { game_date: date || null, game_time: time || null, round: Number(round) || 1 });
     onDone();
   }, 'done');
 
@@ -301,10 +310,12 @@ function GameEditor({ game, onDone }) {
       <div className="form-row" style={{ marginBottom: 6 }}>
         <div style={{ maxWidth: 170 }}><label>Fecha</label>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div style={{ maxWidth: 120 }}><label>Horario</label>
+          <input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></div>
         <div style={{ maxWidth: 100 }}><label>Jornada</label>
           <input type="number" min="1" value={round} onChange={(e) => setRound(e.target.value)} /></div>
         <div style={{ alignSelf: 'flex-end' }}>
-          <button className="btn secondary small" onClick={saveMeta} disabled={busy}>Guardar fecha/jornada</button>
+          <button className="btn secondary small" onClick={saveMeta} disabled={busy}>Guardar fecha/horario</button>
         </div>
       </div>
 

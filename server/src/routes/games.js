@@ -68,14 +68,14 @@ router.get('/games/:id', async (req, res) => {
 
 // Crear juego manual (admin) — útil para playoffs o amistosos.
 router.post('/leagues/:leagueId/games', requireAdmin, async (req, res) => {
-  const { home_team_id, away_team_id, game_date = null, round = 1, group_id = null, stage = 'regular' } = req.body || {};
+  const { home_team_id, away_team_id, game_date = null, game_time = null, round = 1, group_id = null, stage = 'regular' } = req.body || {};
   if (!home_team_id || !away_team_id || home_team_id === away_team_id) {
     return res.status(400).json({ error: 'Equipos local y visitante válidos requeridos' });
   }
   const [r] = await pool.query(
-    `INSERT INTO games (league_id, group_id, round, game_date, home_team_id, away_team_id, stage)
-     VALUES (:l, :g, :round, :date, :home, :away, :stage)`,
-    { l: req.params.leagueId, g: group_id, round, date: game_date, home: home_team_id, away: away_team_id, stage }
+    `INSERT INTO games (league_id, group_id, round, game_date, game_time, home_team_id, away_team_id, stage)
+     VALUES (:l, :g, :round, :date, :time, :home, :away, :stage)`,
+    { l: req.params.leagueId, g: group_id, round, date: game_date, time: game_time || null, home: home_team_id, away: away_team_id, stage }
   );
   const [[game]] = await pool.query('SELECT * FROM games WHERE id = :id', { id: r.insertId });
   res.status(201).json(game);
@@ -115,16 +115,17 @@ router.put('/games/:id/result', requireAdmin, async (req, res) => {
 
 // Actualizar datos del juego (fecha, etc.) (admin).
 router.put('/games/:id', requireAdmin, async (req, res) => {
-  const { game_date, round, group_id, stage } = req.body || {};
+  const { game_date, game_time, round, group_id, stage } = req.body || {};
   await pool.query(
     `UPDATE games SET
         game_date = COALESCE(:date, game_date),
+        game_time = COALESCE(:time, game_time),
         round = COALESCE(:round, round),
         group_id = COALESCE(:group_id, group_id),
         stage = COALESCE(:stage, stage)
       WHERE id = :id`,
-    { id: req.params.id, date: game_date ?? null, round: round ?? null,
-      group_id: group_id ?? null, stage: stage ?? null }
+    { id: req.params.id, date: game_date ?? null, time: (game_time || null),
+      round: round ?? null, group_id: group_id ?? null, stage: stage ?? null }
   );
   const [[game]] = await pool.query('SELECT * FROM games WHERE id = :id', { id: req.params.id });
   res.json(game);
